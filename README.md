@@ -7,7 +7,8 @@ Classroom screen viewing and hands-on help for Forgecraft's Fusion 360 and Tinke
   full-screen "Eyes on me" and "Point").
 - **`helper/`** — the ClassView Helper desktop app (Electron) for Windows and Mac.
 - **`.github/workflows/build-helper.yml`** — builds the Helper on GitHub's Windows and Mac machines.
-  Push a tag like `v0.1.1` to publish a new release; the website's download buttons always point at
+  It runs on every change to `helper/` and publishes a release named after the version in
+  `helper/package.json` (bump it for each new release). The website's download buttons always point at
   the latest release.
 
 ## Hosting the website
