@@ -1,0 +1,55 @@
+{
+  "name": "classview-helper",
+  "productName": "ClassView Helper",
+  "version": "0.1.0",
+  "description": "Lets your Forgecraft trainer see your screen and help you in Fusion 360",
+  "author": "Forgecraft Pte Ltd",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable --x64",
+    "dist:mac": "electron-builder --mac zip --x64 --arm64"
+  },
+  "dependencies": {
+    "@jitsi/robotjs": "0.6.24",
+    "peerjs": "1.5.5"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.forgecraft.classview.helper",
+    "productName": "ClassView Helper",
+    "files": [
+      "main.js",
+      "preload.js",
+      "app.html",
+      "bar.html", "eyes.html", "point.html",
+      "node_modules/peerjs/dist/peerjs.min.js",
+      "node_modules/@jitsi/robotjs/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@jitsi/robotjs/**/*"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "artifactName": "ClassView-Helper-Windows.exe",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "ClassView-Helper-Windows.exe"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "identity": null,
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "ClassView Helper shares your screen with your trainer during class.",
+        "NSAppleEventsUsageDescription": "ClassView Helper lets your trainer control your mouse and keyboard when you allow it."
+      }
+    },
+    "publish": null
+  }
+}

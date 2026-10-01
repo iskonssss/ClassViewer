@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Trainer is controlling</title>
+<style>
+  html,body{margin:0;height:100%;background:#7a3fd0;color:#fff;font:600 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-user-select:none;user-select:none}
+  .row{height:100%;display:flex;align-items:center;gap:10px;padding:0 8px 0 14px;-webkit-app-region:drag}
+  .dot{width:9px;height:9px;border-radius:50%;background:#fff;flex:none;animation:b 1.2s ease-in-out infinite}
+  @keyframes b{50%{opacity:.3}}
+  .txt{flex:1;min-width:0}
+  .txt small{display:block;font-weight:500;opacity:.85;font-size:11px;margin-top:2px}
+  button{-webkit-app-region:no-drag;border:0;border-radius:6px;background:#fff;color:#4a1f8f;font:700 13px system-ui,-apple-system,"Segoe UI",sans-serif;padding:7px 12px;cursor:pointer}
+</style>
+</head>
+<body>
+  <div class="row">
+    <span class="dot"></span>
+    <span class="txt">Your trainer is controlling this laptop<small id="hk">Stop anytime: Ctrl+Shift+X</small></span>
+    <button id="stop">Stop</button>
+  </div>
+<script>
+  document.getElementById("stop").onclick = () => window.helper.barStop();
+  if (navigator.platform.startsWith("Mac")) document.getElementById("hk").textContent = "Stop anytime: ⌘⇧X";
+</script>
+</body>
+</html>

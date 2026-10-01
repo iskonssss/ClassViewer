@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Forgecraft ClassView</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: a print-bed grid of live screens; one toolbar on top, one focus overlay with remote control. */
+:root{
+  --bg:#eef1f3; --surface:#ffffff; --line:#d4dbe0; --fg:#18222a; --muted:#5d6b75;
+  --accent:#0f7a8a; --accent-ink:#ffffff; --stuck:#e0861a; --ctl:#7a3fd0;
+  --ok:#2f8a4c; --bad:#c2412d; --tile:#0f171d;
+  --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1418; --surface:#162027; --line:#26343d; --fg:#e4ebef; --muted:#93a3ad;
+  --accent:#3bb3c3; --accent-ink:#06171b; --stuck:#f0a03a; --ctl:#a77cf0;
+  --ok:#5cc07a; --bad:#ef6a55; --tile:#05090c; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1418; --surface:#162027; --line:#26343d; --fg:#e4ebef; --muted:#93a3ad;
+  --accent:#3bb3c3; --accent-ink:#06171b; --stuck:#f0a03a; --ctl:#a77cf0;
+  --ok:#5cc07a; --bad:#ef6a55; --tile:#05090c; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--font-body);padding-inline:16px}
+[hidden]{display:none!important}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.15}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--accent)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 14px;font-weight:600}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.stuck{background:var(--stuck);color:#1d1204;border-color:var(--stuck)}
+.btn.ctl{background:var(--ctl);color:#fff;border-color:var(--ctl)}
+.btn.small{padding:5px 10px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:default}
+input[type=text],select{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:10px 12px}
+.field{display:grid;gap:6px}
+.hint{color:var(--muted);font-size:13px}
+.err{color:var(--bad);font-size:14px}
+
+/* Home */
+.home{max-width:760px;margin:0 auto;padding-block:56px 40px;display:grid;gap:28px}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.brand b{font-size:30px;letter-spacing:-.02em}
+.brand span{color:var(--muted)}
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.role{text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:22px;display:grid;gap:8px}
+.role:hover{border-color:var(--accent)}
+.role h2{font-size:20px}
+.role p{margin:0;color:var(--muted)}
+.dl{display:grid;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 22px}
+.dl .links{display:flex;flex-wrap:wrap;gap:10px}
+.dl a.btn{text-decoration:none;color:var(--fg)}
+
+/* Learner (browser, view only) */
+.learner{max-width:520px;margin:0 auto;padding-block:40px;display:grid;gap:22px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px;display:grid;gap:16px}
+.status{display:flex;align-items:center;gap:10px;font-weight:600}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+.dot.live{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 25%,transparent)}
+.dot.wait{background:var(--stuck)}
+.dot.off{background:var(--bad)}
+.bigstuck{font-size:20px;padding:18px;border-radius:12px}
+.preview{width:100%;aspect-ratio:16/10;max-width:100%;background:var(--tile);border-radius:8px;object-fit:contain}
+
+/* Trainer */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;padding-block:14px;border-bottom:1px solid var(--line)}
+.code{font-family:var(--font-mono);font-weight:700;font-size:22px;letter-spacing:.12em;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 12px}
+.counts{display:flex;gap:16px;font-variant-numeric:tabular-nums}
+.counts b{font-size:18px}
+.tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.tools select{width:auto}
+.spacer{flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile-min,260px),1fr));gap:14px;padding-block:16px 40px}
+.tile{position:relative;background:var(--surface);border:2px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer}
+.tile:hover{border-color:var(--accent)}
+.tile.is-stuck{border-color:var(--stuck);box-shadow:0 0 0 3px color-mix(in srgb,var(--stuck) 35%,transparent)}
+.tile.is-ctl{border-color:var(--ctl)}
+.tile.is-off{opacity:.55}
+.tile video{width:100%;aspect-ratio:16/10;background:var(--tile);object-fit:contain;display:block}
+.tile .noscreen{position:absolute;inset:0 0 auto 0;aspect-ratio:16/10;display:grid;place-items:center;color:#9fb0ba;font-size:13px}
+.meta{display:flex;align-items:center;gap:8px;padding:8px 10px;min-width:0}
+.meta .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.pill{font-size:12px;font-weight:700;border-radius:99px;padding:2px 9px;white-space:nowrap}
+.pill.stuck{background:var(--stuck);color:#1d1204}
+.pill.off{background:var(--bad);color:#fff}
+.pill.kind{border:1px solid var(--line);color:var(--muted);font-weight:600}
+.pill.kind.helper{border-color:var(--ctl);color:var(--ctl)}
+.empty{grid-column:1/-1;border:2px dashed var(--line);border-radius:12px;padding:40px 20px;text-align:center;color:var(--muted);display:grid;gap:8px;justify-items:center}
+.empty .code{font-size:40px}
+
+/* Focus overlay */
+.overlay{position:fixed;inset:0;z-index:20;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(3px);display:grid;grid-template-rows:auto auto 1fr;padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 16px;gap:10px}
+.ohead{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.ohead h2{font-size:22px}
+.ctlnote{font-size:14px;color:var(--muted);min-height:1.5em}
+.ctlnote b{color:var(--ctl)}
+.stage{position:relative;min-height:0;border-radius:10px;background:var(--tile);overflow:hidden;outline:none}
+.stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage.controlling{box-shadow:0 0 0 3px var(--ctl);cursor:crosshair}
+.stage.controlling:focus{box-shadow:0 0 0 3px var(--ctl),0 0 0 7px color-mix(in srgb,var(--ctl) 35%,transparent)}
+.stage.pointing{cursor:crosshair;box-shadow:0 0 0 3px #ff3b7f}
+.btn.point{border-color:#ff3b7f;color:#c41d5c}
+.btn.point.on{background:#ff3b7f;color:#fff}
+.pring{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:5px solid #ff3b7f;box-shadow:0 0 0 3px #fff;pointer-events:none;animation:pfade 2.2s ease-out forwards}
+@keyframes pfade{0%{transform:scale(.4);opacity:1}25%{transform:scale(1.15)}100%{transform:scale(1);opacity:0}}
+.stage .ctlbadge{position:absolute;left:12px;top:12px;background:var(--ctl);color:#fff;font-weight:700;font-size:13px;padding:4px 10px;border-radius:6px;pointer-events:none}
+
+/* Projector join card */
+.join{position:fixed;inset:0;z-index:30;background:var(--bg);display:grid;place-items:center;text-align:center;padding:24px}
+.join .inner{display:grid;gap:18px;justify-items:center}
+.join .code{font-size:clamp(48px,12vw,140px);padding:8px 28px}
+.join .url{font-family:var(--font-mono);font-size:clamp(16px,2.6vw,28px);word-break:break-all}
+.eyesbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.eyesbar input{width:14em}
+.btn.eyes{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.eyes.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.eyesnote{background:var(--bad);color:#fff;font-weight:700;border-radius:8px;padding:8px 14px;margin-top:12px}
+.eyes-cover{position:fixed;inset:0;z-index:50;background:#10161b;color:#fff;display:grid;place-items:center;text-align:center;padding:24px}
+.eyes-cover .big{font-size:clamp(34px,7vw,88px);font-weight:700;line-height:1.1;max-width:16ch;text-wrap:balance}
+.eyes-cover .eyesicon{font-size:clamp(60px,12vw,140px);line-height:1}
+.pipbtn{border-style:dashed}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;z-index:40;font-weight:600}
+@media (prefers-reduced-motion:no-preference){.tile.is-stuck{animation:pulse 1.6s ease-in-out infinite}}
+@keyframes pulse{50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--stuck) 15%,transparent)}}
+</style>
+</head>
+<body>
+
+<!-- HOME -->
+<main id="home" class="home" hidden>
+  <div class="brand"><b>ClassView</b><span>Forgecraft · live screens for Fusion 360 lessons</span></div>
+  <div class="roles">
+    <button class="role" id="pickTrainer"><span class="label">Trainer</span><h2>Start a class</h2><p>See every learner's screen in one grid and take control when someone is stuck.</p></button>
+    <button class="role" id="pickLearner"><span class="label">Learner</span><h2>Join in the browser</h2><p>Share your screen with nothing to install. Your trainer can watch but not control.</p></button>
+  </div>
+  <div class="dl">
+    <span class="label">Recommended for learners</span>
+    <p style="margin:0">Get the <b>ClassView Helper</b> app so your trainer can click into Fusion 360 and help you directly. It only works while you have it open, and you approve each time.</p>
+    <div class="links">
+      <a class="btn" href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Windows.exe">Download for Windows</a>
+      <a class="btn" href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Mac-AppleSilicon.zip">Mac with Apple chip (M1–M4)</a>
+      <a class="btn" href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Mac-Intel.zip">Mac with Intel chip</a>
+    </div>
+    <p class="hint" style="margin:0">Not sure which Mac you have? Apple menu → About This Mac. "Chip: Apple M…" means Apple chip; "Processor: Intel" means Intel.</p>
+  </div>
+</main>
+
+<!-- LEARNER (browser, view only) -->
+<main id="learner" class="learner" hidden>
+  <div class="brand"><b>ClassView</b><span>Learner · view only</span></div>
+
+  <form id="joinForm" class="card" autocomplete="on">
+    <h2 style="font-size:22px">Join the class</h2>
+    <div class="field"><label for="lCode" class="label">Class code</label><input type="text" id="lCode" class="mono" maxlength="6" placeholder="e.g. K7P2Q" required style="text-transform:uppercase;letter-spacing:.12em"></div>
+    <div class="field"><label for="lName" class="label">Your name</label><input type="text" id="lName" maxlength="40" placeholder="e.g. Aisyah" required></div>
+    <button class="btn primary" type="submit" id="lJoin">Share my screen</button>
+    <p class="hint" style="margin:0">Your browser will ask what to share. Choose <b>Entire screen</b> so your trainer can see Fusion 360.</p>
+    <p class="err" id="lErr" hidden></p>
+    <p class="hint" style="margin:0">Want your trainer to be able to click in and help? Use the <b>ClassView Helper</b> app instead: <a href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Windows.exe">Windows</a> · <a href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Mac-AppleSilicon.zip">Mac (Apple chip)</a> · <a href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Mac-Intel.zip">Mac (Intel)</a>.</p>
+  </form>
+
+  <section id="liveCard" class="card" hidden>
+    <div class="status"><span class="dot" id="lDot"></span><span id="lStatus">Connecting…</span></div>
+    <video id="lPreview" class="preview" muted playsinline autoplay></video>
+    <button class="btn bigstuck" id="lStuck" type="button">I'm stuck</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn pipbtn" id="lPip" type="button" hidden>Open floating panel</button>
+      <button class="btn" id="lReshare" type="button" hidden>Share screen again</button>
+      <button class="btn" id="lStop" type="button">Stop sharing and leave</button>
+    </div>
+  </section>
+</main>
+
+<!-- TRAINER -->
+<div id="trainer" hidden>
+  <header class="bar">
+    <div style="display:grid;gap:2px"><span class="label">Class code</span><span class="code" id="tCode">-----</span></div>
+    <div class="counts">
+      <span><b id="tLive">0</b> <span class="hint">sharing</span></span>
+      <span><b id="tStuckN" style="color:var(--stuck)">0</b> <span class="hint">stuck</span></span>
+    </div>
+    <div class="eyesbar">
+      <button class="btn eyes" id="tEyes" title="Cover every learner's screen with a message">Eyes on me</button>
+      <input type="text" id="tEyesMsg" maxlength="80" placeholder="Eyes on the trainer, please" aria-label="Message on learners' screens">
+    </div>
+    <div class="spacer"></div>
+    <div class="tools">
+      <label class="hint" for="tQuality">Grid quality</label>
+      <select id="tQuality"><option value="low">Low</option><option value="med" selected>Medium</option><option value="high">High</option></select>
+      <label class="hint" for="tSize">Tile size</label>
+      <select id="tSize"><option value="200">Small</option><option value="260" selected>Medium</option><option value="360">Large</option></select>
+      <label class="hint" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="tSound" checked> Sound on stuck</label>
+      <button class="btn" id="tShowJoin">Show join code</button>
+      <button class="btn" id="tCopyLink">Copy join link</button>
+      <button class="btn" id="tNew">New class</button>
+    </div>
+  </header>
+  <p class="err" id="tErr" hidden style="padding-top:12px"></p>
+  <div class="eyesnote" id="tEyesNote" hidden>Learners' screens are covered. Click "Release screens" when you're done.</div>
+  <section class="grid" id="tGrid"></section>
+</div>
+
+<div id="overlay" class="overlay" hidden>
+  <div class="ohead">
+    <h2 id="oName">Learner</h2>
+    <span class="pill stuck" id="oStuck" hidden>Stuck</span>
+    <span class="pill kind" id="oKind"></span>
+    <div class="spacer"></div>
+    <button class="btn point" id="oPoint" title="Click on their screen to show a ring there. Doesn't take control.">Point</button>
+    <button class="btn ctl" id="oCtl">Take control</button>
+    <button class="btn" id="oHelped">Mark as helped</button>
+    <button class="btn" id="oPrev" aria-label="Previous learner">←</button>
+    <button class="btn" id="oNext" aria-label="Next learner">→</button>
+    <button class="btn primary" id="oClose">Close</button>
+  </div>
+  <div class="ctlnote" id="oNote"></div>
+  <div class="stage" id="stage" tabindex="-1">
+    <video id="oVideo" muted playsinline autoplay></video>
+    <span class="ctlbadge" id="oBadge" hidden>Controlling</span>
+  </div>
+</div>
+
+<div id="join" class="join" hidden>
+  <div class="inner">
+    <span class="label" style="font-size:16px">Go to this page and enter the code</span>
+    <span class="url" id="jUrl"></span>
+    <span class="code" id="jCode"></span>
+    <button class="btn" id="jClose">Back to screens</button>
+  </div>
+</div>
+
+<div id="eyesCover" class="eyes-cover" hidden><div style="display:grid;gap:18px;justify-items:center"><div class="eyesicon" aria-hidden="true">👀</div><div class="big" id="eyesMsg">Eyes on the trainer, please</div></div></div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const PREFIX = "forgecraft-classview-";
+const QUALITY = {
+  low:  { width: 960,  fps: 3,  bitrate: 250_000 },
+  med:  { width: 1280, fps: 5,  bitrate: 500_000 },
+  high: { width: 1600, fps: 8,  bitrate: 900_000 },
+  focus:{ width: 1920, fps: 15, bitrate: 2_500_000 },
+  control:{ width: 1920, fps: 24, bitrate: 3_500_000 },
+};
+const PEER_KEYS = ["peerhost","peerport","peerpath","peersecure"];
+
+// Optional self-hosted signalling server: ?peerhost=..&peerport=..&peerpath=..&peersecure=0
+function peerOptions() {
+  const o = { debug: 1 };
+  if (params.get("peerhost")) {
+    o.host = params.get("peerhost");
+    o.port = Number(params.get("peerport") || 443);
+    o.path = params.get("peerpath") || "/";
+    o.secure = params.get("peersecure") !== "0";
+  }
+  return o;
+}
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch {} },
+  del(k){ try { localStorage.removeItem(k); } catch {} },
+};
+let toastT;
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,2400); }
+async function copy(text){
+  try { await navigator.clipboard.writeText(text); toast("Copied"); }
+  catch { toast("Copy blocked. Select the text and copy it manually."); }
+}
+function cleanCode(s){ return (s||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6); }
+function newCode(){ const a="ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s=""; const r=crypto.getRandomValues(new Uint8Array(5)); for(const b of r) s+=a[b%a.length]; return s; }
+function extraParams(){ let s=""; for (const k of PEER_KEYS) if(params.get(k)) s+="&"+k+"="+encodeURIComponent(params.get(k)); return s; }
+function joinUrl(code){ const u=new URL(location.href); u.hash=""; u.search="?class="+code+extraParams(); return u.toString(); }
+function baseUrl(){ const u=new URL(location.href); return u.host + u.pathname.replace(/index\.html$/,""); }
+function show(view){ for (const v of ["home","learner","trainer"]) $(v).hidden = v!==view; }
+
+// ---------------- ROUTING ----------------
+if (params.get("class")) startLearnerView(cleanCode(params.get("class")));
+else if (params.has("trainer")) startTrainer();
+else show("home");
+$("pickTrainer").onclick = () => { history.replaceState(null,"","?trainer"+extraParams()); startTrainer(); };
+$("pickLearner").onclick = () => startLearnerView("");
+
+// ================= LEARNER (browser, view only) =================
+function startLearnerView(code){
+  show("learner");
+  $("lCode").value = code || "";
+  $("lName").value = store.get("cv-name") || "";
+  (code ? $("lName") : $("lCode")).focus();
+
+  let peer, conn, call, stream, stuck=false, quality="med", retryT, leaving=false, trainerId;
+  let pip = null, eyesOn = false, eyesText = "", titleT = null, audioCtx = null;
+  const baseTitle = document.title;
+
+  $("joinForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    $("lErr").hidden = true;
+    const c = cleanCode($("lCode").value);
+    if (c.length < 4) return err("Check the class code on the projector.");
+    const name = $("lName").value.trim(); if (!name) return err("Enter your name.");
+    store.set("cv-name", name);
+    trainerId = PREFIX + c + "-trainer";
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 24, width: { max: 1920 } }, audio: false });
+    } catch (ex) {
+      return err(ex && ex.name==="NotAllowedError" ? "Screen sharing was cancelled or blocked. Click Share my screen and allow it. On a Mac, also allow your browser under System Settings → Privacy & Security → Screen Recording." : "This browser can't share your screen. Use Chrome or Edge on a laptop.");
+    }
+    try { audioCtx = new (window.AudioContext||window.webkitAudioContext)(); } catch {}
+    prepStream();
+    $("lPip").hidden = !("documentPictureInPicture" in window);
+    $("joinForm").hidden = true; $("liveCard").hidden = false;
+    $("lPreview").srcObject = stream;
+    history.replaceState(null,"","?class="+c+extraParams());
+    setStatus("wait","Connecting to your trainer…");
+    peer = new Peer(undefined, peerOptions());
+    peer.on("open", connect);
+    peer.on("connection", c2 => c2.close());
+    peer.on("error", ex => {
+      if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
+      else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
+      retry();
+    });
+    peer.on("disconnected", () => { if (!leaving) setTimeout(()=>{ try{ peer.reconnect(); }catch{} }, 1500); });
+  });
+  function err(m){ $("lErr").textContent=m; $("lErr").hidden=false; }
+
+  function prepStream(){
+    const tr = stream.getVideoTracks()[0];
+    try { tr.contentHint = "detail"; } catch {}
+    tr.addEventListener("ended", () => {
+      setStatus("off","You stopped sharing. Your trainer can't see your screen.");
+      $("lReshare").hidden = false;
+      send({ type:"sharing", value:false });
+    });
+  }
+  function retry(){ clearTimeout(retryT); if (!leaving) retryT = setTimeout(connect, 3000); }
+  function connect(){
+    if (leaving || !peer || peer.destroyed) return;
+    if (peer.disconnected) { try { peer.reconnect(); } catch {} return; }
+    try { conn && conn.close(); } catch {}
+    try { call && call.close(); } catch {}
+    conn = peer.connect(trainerId, { reliable:true, metadata: info() });
+    conn.on("open", () => { send({ type:"hello", ...info() }); startCall(); });
+    conn.on("data", onData);
+    conn.on("close", () => { setEyes(false); if (!leaving) { setStatus("wait","Trainer disconnected. Reconnecting…"); retry(); } });
+    conn.on("error", () => retry());
+  }
+  function startCall(){
+    if (!stream || !stream.active) return;
+    try { call && call.close(); } catch {}
+    call = peer.call(trainerId, stream, { metadata: { name: $("lName").value.trim() } });
+    call.on("error", ()=>{});
+    setTimeout(applyQuality, 800);
+    setStatus("live","Your screen is being shared with your trainer.");
+  }
+  function info(){ return { name: $("lName").value.trim(), stuck, sharing: !!(stream && stream.active), client:"browser", canControl:false }; }
+  function send(m){ try { if (conn && conn.open) conn.send(m); } catch {} }
+  function onData(m){
+    if (!m || typeof m!=="object") return;
+    if (m.type==="quality" && QUALITY[m.level]) { quality=m.level; applyQuality(); }
+    if (m.type==="helped") { setStuck(false); toast("Your trainer marked you as helped"); }
+    if (m.type==="control-request") { send({ type:"control-denied", reason:"browser" }); }
+    if (m.type==="ping") send({ type:"pong" });
+    if (m.type==="eyes") setEyes(!!m.on, m.text);
+  }
+  // ----- "Eyes on me" -----
+  function setEyes(on, text){
+    const wasOn = eyesOn; eyesOn = on; eyesText = (text||"").trim() || "Eyes on the trainer, please";
+    $("eyesMsg").textContent = eyesText;
+    $("eyesCover").hidden = !on;
+    paintPip();
+    clearInterval(titleT); document.title = baseTitle;
+    if (on) {
+      let f = false; titleT = setInterval(() => { f=!f; document.title = f ? "👀 LOOK AT THE TRAINER" : baseTitle; }, 900);
+      if (!wasOn) chime();
+    }
+  }
+  function chime(){
+    try {
+      if (!audioCtx) return; audioCtx.resume();
+      [660, 880].forEach((f,i) => { const o=audioCtx.createOscillator(), g=audioCtx.createGain(), t=audioCtx.currentTime+i*0.18;
+        o.frequency.value=f; g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.3,t+.02); g.gain.exponentialRampToValueAtTime(.0001,t+.3);
+        o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t+.32); });
+    } catch {}
+  }
+  // Floating always-on-top panel (Chrome/Edge): stays visible over Tinkercad.
+  $("lPip").onclick = async () => {
+    try {
+      pip = await window.documentPictureInPicture.requestWindow({ width: 340, height: 220 });
+    } catch { return toast("Your browser didn't open the floating panel"); }
+    const d = pip.document;
+    const st = d.createElement("style");
+    st.textContent = `body{margin:0;font:600 15px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;background:#eef1f3;color:#18222a;height:100vh;display:grid}
+      .wrap{display:grid;gap:10px;padding:12px;align-content:center}
+      .st{display:flex;gap:8px;align-items:center;font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:#2f8a4c}
+      button{font:700 18px system-ui,sans-serif;padding:14px;border-radius:10px;border:2px solid #0f7a8a;background:#fff;color:#18222a;cursor:pointer}
+      button.on{background:#e0861a;border-color:#e0861a;color:#1d1204}
+      .eyes{position:fixed;inset:0;background:#10161b;color:#fff;display:grid;place-items:center;text-align:center;padding:12px;font-size:24px;line-height:1.15}
+      .eyes b{display:block;font-size:44px;margin-bottom:6px}`;
+    d.head.appendChild(st);
+    d.body.innerHTML = `<div class="wrap"><div class="st"><span class="dot"></span><span>Sharing with your trainer</span></div><button id="pStuck">I'm stuck</button></div><div class="eyes" id="pEyes" hidden><div><b>👀</b><span id="pMsg"></span></div></div>`;
+    d.getElementById("pStuck").onclick = () => setStuck(!stuck);
+    pip.addEventListener("pagehide", () => { pip = null; $("lPip").hidden = false; });
+    $("lPip").hidden = true;
+    paintPip();
+  };
+  function paintPip(){
+    if (!pip) return;
+    const d = pip.document, b = d.getElementById("pStuck"), e = d.getElementById("pEyes");
+    if (b) { b.textContent = stuck ? "Waiting for help…" : "I'm stuck"; b.className = stuck ? "on" : ""; }
+    if (e) { e.hidden = !eyesOn; d.getElementById("pMsg").textContent = eyesText; }
+  }
+  async function applyQuality(){
+    const q = QUALITY[quality]; if (!stream) return;
+    const tr = stream.getVideoTracks()[0]; if (!tr) return;
+    try { await tr.applyConstraints({ width:{ max:q.width }, frameRate:{ max:q.fps } }); } catch {}
+    const pc = call && call.peerConnection; if (!pc) return;
+    for (const s of pc.getSenders()) {
+      if (!s.track || s.track.kind!=="video") continue;
+      try { const p = s.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings=[{}]; p.encodings[0].maxBitrate=q.bitrate; p.encodings[0].maxFramerate=q.fps; await s.setParameters(p); } catch {}
+    }
+  }
+  function setStatus(kind, text){ $("lDot").className = "dot " + kind; $("lStatus").textContent = text; }
+  function setStuck(v){
+    stuck = v;
+    $("lStuck").textContent = v ? "Waiting for help… (tap to cancel)" : "I'm stuck";
+    $("lStuck").className = "btn bigstuck" + (v ? " stuck" : "");
+    send({ type:"stuck", value:v });
+    paintPip();
+  }
+  $("lStuck").onclick = () => setStuck(!stuck);
+  $("lReshare").onclick = async () => {
+    try { stream = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:24, width:{max:1920} }, audio:false }); }
+    catch { return toast("Sharing was cancelled"); }
+    prepStream(); $("lPreview").srcObject = stream; $("lReshare").hidden = true;
+    send({ type:"sharing", value:true }); startCall();
+  };
+  $("lStop").onclick = () => {
+    leaving = true; clearTimeout(retryT);
+    send({ type:"bye" });
+    setTimeout(() => { try{ stream && stream.getTracks().forEach(t=>t.stop()); }catch{} try{ peer && peer.destroy(); }catch{} location.href = location.pathname + (extraParams() ? "?"+extraParams().slice(1) : ""); }, 300);
+  };
+  window.addEventListener("beforeunload", () => send({ type:"bye" }));
+}
+
+// ================= TRAINER =================
+function startTrainer(){
+  show("trainer");
+  let code = store.get("cv-trainer-code") || newCode();
+  store.set("cv-trainer-code", code);
+  const learners = new Map(); // peerId -> {name,stuck,stream,conn,call,online,client,canControl,os,ctl}
+  let eyes = { on:false, text:"" };
+  let peer, focusId = null, gridQ, audioCtx;
+  const myPlatform = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "mac" : "win";
+
+  $("tSize").value = store.get("cv-tile") || "260";
+  document.documentElement.style.setProperty("--tile-min", $("tSize").value+"px");
+  $("tQuality").value = store.get("cv-q") || "med"; gridQ = $("tQuality").value;
+
+  function open(){
+    $("tCode").textContent = code;
+    peer = new Peer(PREFIX + code + "-trainer", peerOptions());
+    peer.on("open", () => { $("tErr").hidden = true; render(); });
+    peer.on("connection", c => {
+      c.on("open", () => {
+        const id = c.peer;
+        const L = learners.get(id) || { stuck:false, joinedAt:Date.now() };
+        Object.assign(L, c.metadata || {}, { conn:c, online:true, ctl:"idle" });
+        learners.set(id, L);
+        if (eyes.on) { try { c.send({ type:"eyes", on:true, text:eyes.text }); } catch {} }
+        render();
+      });
+      c.on("data", m => onData(c.peer, m));
+      c.on("close", () => { const L = learners.get(c.peer); if (L && L.conn===c) { L.online=false; L.ctl="idle"; if (focusId===c.peer) stopCapture(); render(); } });
+    });
+    peer.on("call", call => {
+      call.answer();
+      call.on("stream", s => {
+        const L = learners.get(call.peer) || { stuck:false, joinedAt:Date.now(), name:(call.metadata||{}).name||"Learner", ctl:"idle" };
+        if (L.call && L.call!==call) { try{ L.call.close(); }catch{} }
+        L.call = call; L.stream = s; L.sharing = true; L.online = true;
+        learners.set(call.peer, L);
+        sendQ(call.peer);
+        render();
+      });
+      call.on("close", () => { const L = learners.get(call.peer); if (L && L.call===call) { L.stream=null; render(); } });
+    });
+    peer.on("error", ex => {
+      if (ex.type==="unavailable-id") showErr("This class code is already open in another tab or on another laptop. Close it there, or click New class.");
+      else if (["network","server-error","socket-error","socket-closed"].includes(ex.type)) { showErr("Lost connection to the class server. Retrying…"); setTimeout(()=>{ try{ peer.reconnect(); }catch{} }, 3000); }
+      else if (ex.type!=="peer-unavailable") showErr("Connection problem: " + ex.type);
+    });
+    peer.on("disconnected", () => setTimeout(()=>{ try{ if(!peer.destroyed) peer.reconnect(); }catch{} }, 2000));
+  }
+  function showErr(m){ $("tErr").textContent = m; $("tErr").hidden = false; }
+
+  function onData(id, m){
+    const L = learners.get(id); if (!L || !m) return;
+    switch (m.type) {
+      case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy }); break;
+      case "caps": Object.assign(L, { canControl:!!m.canControl, ctlWhy:m.ctlWhy }); break;
+      case "stuck": { const was=L.stuck; L.stuck=!!m.value; L.stuckAt = L.stuck ? Date.now() : null; if (L.stuck && !was) beep(); break; }
+      case "sharing": L.sharing=!!m.value; if(!m.value) L.stream=null; break;
+      case "control-granted": L.ctl="active"; if (focusId===id) { startCapture(); toast((L.name||"Learner")+" allowed control"); } sendQ(id); break;
+      case "control-denied": L.ctl="idle"; if (focusId===id) toast(m.reason==="browser" ? "This learner joined in the browser, so control isn't available" : (L.name||"Learner")+" declined control"); break;
+      case "control-ended": L.ctl="idle"; if (focusId===id) { stopCapture(); toast((L.name||"Learner")+" ended control"); } sendQ(id); break;
+      case "bye": learners.delete(id); if (focusId===id) closeFocus(); break;
+    }
+    render();
+  }
+  function send(id, m){ const L=learners.get(id); try{ if (L && L.conn && L.conn.open) L.conn.send(m); }catch{} }
+  function sendQ(id){ const L=learners.get(id); send(id, { type:"quality", level: id===focusId ? (L && L.ctl==="active" ? "control" : "focus") : gridQ }); }
+
+  function beep(){
+    if (!$("tSound").checked) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+      o.frequency.value=880; g.gain.setValueAtTime(.0001,audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(.25,audioCtx.currentTime+.02);
+      g.gain.exponentialRampToValueAtTime(.0001,audioCtx.currentTime+.35);
+      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+.4);
+    } catch {}
+  }
+
+  function ordered(){
+    return [...learners.entries()].sort(([,a],[,b]) =>
+      (b.stuck - a.stuck) || (a.stuck && b.stuck ? a.stuckAt - b.stuckAt : 0) || (a.name||"").localeCompare(b.name||""));
+  }
+  const tiles = new Map();
+  function render(){
+    const grid = $("tGrid");
+    const list = ordered();
+    $("tLive").textContent = list.filter(([,L]) => L.stream && L.online).length;
+    $("tStuckN").textContent = list.filter(([,L]) => L.stuck && L.online).length;
+    document.title = (list.some(([,L])=>L.stuck&&L.online) ? "("+$("tStuckN").textContent+" stuck) " : "") + "Forgecraft ClassView";
+    if (!list.length) {
+      grid.innerHTML = `<div class="empty"><span class="label">Waiting for learners</span><span class="code">${code}</span><span>Learners open the ClassView Helper (or <b class="mono">${esc(baseUrl())}</b>) and enter this code.</span><button class="btn primary" id="emptyJoin">Show on projector</button></div>`;
+      $("emptyJoin").onclick = showJoin;
+      tiles.clear();
+      return;
+    }
+    const emptyEl = grid.querySelector(".empty"); if (emptyEl) emptyEl.remove();
+    for (const [id, el] of tiles) if (!learners.has(id)) { el.remove(); tiles.delete(id); }
+    for (const [id, L] of list) {
+      let el = tiles.get(id);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "tile"; el.tabIndex = 0; el.setAttribute("role","button");
+        el.innerHTML = `<video muted playsinline autoplay></video><div class="noscreen"></div><div class="meta"><span class="name"></span><span class="pill stuck" hidden>Stuck</span><span class="pill off" hidden>Offline</span><span class="pill kind"></span></div>`;
+        el.addEventListener("click", () => openFocus(id));
+        el.addEventListener("keydown", e => { if (e.key==="Enter"||e.key===" ") { e.preventDefault(); openFocus(id); } });
+        tiles.set(id, el);
+      }
+      grid.appendChild(el);
+      const v = el.querySelector("video");
+      const want = L.stream && L.online ? L.stream : null;
+      if (v.srcObject !== want) { v.srcObject = want; if (want) v.play().catch(()=>{}); }
+      el.querySelector(".noscreen").hidden = !!want;
+      el.querySelector(".noscreen").textContent = !L.online ? "Disconnected" : (L.sharing===false ? "Stopped sharing" : "Connecting screen…");
+      el.querySelector(".name").textContent = L.name || "Learner";
+      el.querySelector(".pill.stuck").hidden = !(L.stuck && L.online);
+      el.querySelector(".pill.off").hidden = L.online;
+      const k = el.querySelector(".pill.kind");
+      k.textContent = L.client==="helper" ? (L.canControl ? "Helper" : "Helper · no control") : "Browser";
+      k.classList.toggle("helper", L.client==="helper" && L.canControl);
+      el.classList.toggle("is-stuck", !!(L.stuck && L.online));
+      el.classList.toggle("is-ctl", L.ctl==="active");
+      el.classList.toggle("is-off", !L.online);
+      el.setAttribute("aria-label", (L.name||"Learner") + (L.stuck ? ", stuck" : "") + ". Open full screen");
+    }
+    if (focusId) fillFocus();
+  }
+  function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+  // ----- focus view -----
+  function openFocus(id){
+    const prev = focusId;
+    if (prev && prev!==id) { releaseControl(prev); }
+    focusId = id;
+    if (prev && prev!==id) sendQ(prev);
+    sendQ(id);
+    $("overlay").hidden = false; fillFocus();
+  }
+  function fillFocus(){
+    const L = learners.get(focusId); if (!L) return closeFocus();
+    $("oName").textContent = L.name || "Learner";
+    $("oStuck").hidden = !L.stuck;
+    $("oKind").textContent = L.client==="helper" ? "Helper app" + (L.os ? " · " + (L.os==="darwin" ? "Mac" : L.os==="win32" ? "Windows" : L.os) : "") : "Browser · view only";
+    $("oHelped").disabled = !L.stuck;
+    const v = $("oVideo"); const want = L.stream || null;
+    if (v.srcObject !== want) { v.srcObject = want; if (want) v.play().catch(()=>{}); }
+    const b = $("oCtl"), n = $("oNote");
+    b.disabled = !L.online || !L.canControl || L.ctl==="requesting";
+    b.textContent = L.ctl==="active" ? "Release control" : L.ctl==="requesting" ? "Waiting for approval…" : "Take control";
+    if (!L.online) n.textContent = "This learner is offline.";
+    else if (L.client!=="helper") n.textContent = "Joined in the browser, so you can watch but not control. Ask them to open the ClassView Helper app.";
+    else if (!L.canControl) n.textContent = L.ctlWhy || "Control isn't set up on this laptop yet. On a Mac, the learner needs to allow Accessibility for ClassView Helper.";
+    else if (L.ctl==="requesting") n.textContent = "Asked " + (L.name||"the learner") + " to allow control. They need to click Allow on their laptop.";
+    else if (L.ctl==="active") n.innerHTML = "<b>You're controlling " + esc(L.name||"this laptop") + ".</b> Click inside the screen first, then use your mouse and keyboard. Your keys go to their laptop while the screen has focus.";
+    else n.textContent = "";
+    if (L.ctl==="active") pointMode = false;
+    $("oPoint").classList.toggle("on", pointMode);
+    $("oPoint").textContent = pointMode ? "Pointing (click screen)" : "Point";
+    $("oPoint").disabled = L.ctl==="active" || !L.online;
+    if (pointMode && L.ctl!=="active") n.textContent = L.client==="helper"
+      ? "Click anywhere on their screen. A pink ring appears at that spot on " + (L.name||"their") + "'s laptop for a few seconds."
+      : "This learner joined in the browser, so the ring only shows here on your screen. Put this view on the projector to point it out.";
+    $("stage").classList.toggle("pointing", pointMode && L.ctl!=="active");
+    $("stage").classList.toggle("controlling", L.ctl==="active");
+    $("oBadge").hidden = L.ctl!=="active";
+    $("oClose").textContent = L.ctl==="active" ? "Close" : "Close (Esc)";
+  }
+  function closeFocus(){
+    pointMode = false;
+    const id=focusId;
+    if (id) releaseControl(id);
+    focusId=null; $("overlay").hidden=true; $("oVideo").srcObject=null;
+    if (id && learners.has(id)) sendQ(id);
+  }
+  function step(d){ const ids = ordered().map(([id])=>id); if (!ids.length) return; const i = ids.indexOf(focusId); openFocus(ids[(i+d+ids.length)%ids.length]); }
+  $("oClose").onclick = closeFocus;
+  $("oPrev").onclick = () => step(-1);
+  $("oNext").onclick = () => step(1);
+  $("oHelped").onclick = () => { const L=learners.get(focusId); if(!L) return; L.stuck=false; send(focusId,{type:"helped"}); render(); };
+  $("oCtl").onclick = () => {
+    const L = learners.get(focusId); if (!L) return;
+    if (L.ctl==="active") { releaseControl(focusId); render(); return; }
+    L.ctl = "requesting"; send(focusId, { type:"control-request", platform: myPlatform }); render();
+    setTimeout(() => { if (L.ctl==="requesting") { L.ctl="idle"; render(); } }, 30000);
+  };
+  function releaseControl(id){
+    const L = learners.get(id); if (!L) return;
+    if (L.ctl==="active" || L.ctl==="requesting") { send(id, { type:"in", e:"allup" }); send(id, { type:"control-release" }); }
+    L.ctl = "idle";
+    if (id===focusId) stopCapture();
+  }
+
+  // ----- remote input capture -----
+  const stage = $("stage"), vid = $("oVideo");
+  let capturing = false, pendingMove = null, raf = 0, wheelAcc = 0, pointMode = false;
+  function startCapture(){ capturing = true; stage.tabIndex = 0; stage.focus(); fillFocus(); }
+  function stopCapture(){ capturing = false; stage.tabIndex = -1; pendingMove = null; }
+  $("oPoint").onclick = () => { pointMode = !pointMode; fillFocus(); };
+  function localRing(e){
+    const r = stage.getBoundingClientRect(), d = document.createElement("div");
+    d.className = "pring"; d.style.left = (e.clientX - r.left) + "px"; d.style.top = (e.clientY - r.top) + "px";
+    stage.appendChild(d); setTimeout(() => d.remove(), 2300);
+  }
+  function norm(e){
+    const r = stage.getBoundingClientRect(), vw = vid.videoWidth || 16, vh = vid.videoHeight || 10;
+    const s = Math.min(r.width / vw, r.height / vh), w = vw*s, h = vh*s;
+    const ox = r.left + (r.width - w)/2, oy = r.top + (r.height - h)/2;
+    const x = (e.clientX - ox) / w, y = (e.clientY - oy) / h;
+    return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)), inside: x>=0 && x<=1 && y>=0 && y<=1 };
+  }
+  function out(m){ if (capturing && focusId) send(focusId, Object.assign({ type:"in" }, m)); }
+  const BTN = { 0:"left", 1:"middle", 2:"right" };
+  stage.addEventListener("pointermove", e => {
+    if (!capturing) return;
+    pendingMove = norm(e);
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (pendingMove) { out({ e:"mm", x:pendingMove.x, y:pendingMove.y }); pendingMove = null; } });
+  });
+  stage.addEventListener("pointerdown", e => {
+    if (!capturing && pointMode && focusId && e.button===0) {
+      const p = norm(e); if (!p.inside) return;
+      localRing(e); send(focusId, { type:"point", x:p.x, y:p.y }); return;
+    }
+    if (!capturing) return;
+    e.preventDefault(); stage.focus();
+    const p = norm(e); if (!p.inside || !BTN[e.button]) return;
+    try { stage.setPointerCapture(e.pointerId); } catch {}
+    out({ e:"md", b:BTN[e.button], x:p.x, y:p.y });
+  });
+  stage.addEventListener("pointerup", e => {
+    if (!capturing || !BTN[e.button]) return;
+    e.preventDefault();
+    const p = norm(e); out({ e:"mu", b:BTN[e.button], x:p.x, y:p.y });
+  });
+  stage.addEventListener("contextmenu", e => { if (capturing) e.preventDefault(); });
+  stage.addEventListener("auxclick", e => { if (capturing) e.preventDefault(); });
+  stage.addEventListener("wheel", e => {
+    if (!capturing) return;
+    e.preventDefault();
+    const px = e.deltaMode===1 ? e.deltaY*33 : e.deltaMode===2 ? e.deltaY*400 : e.deltaY;
+    wheelAcc += -px / 100; // positive = scroll up / away, in "notches"
+    if (Math.abs(wheelAcc) >= 0.2) { const p = norm(e); out({ e:"wh", n: +wheelAcc.toFixed(2), x:p.x, y:p.y }); wheelAcc = 0; }
+  }, { passive:false });
+  stage.addEventListener("keydown", e => {
+    if (!capturing) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.repeat && /^(Shift|Control|Alt|Meta)/.test(e.code)) return;
+    out({ e:"kd", code:e.code, key:e.key });
+  });
+  stage.addEventListener("keyup", e => {
+    if (!capturing) return;
+    e.preventDefault(); e.stopPropagation();
+    out({ e:"ku", code:e.code, key:e.key });
+  });
+  stage.addEventListener("blur", () => { if (capturing) out({ e:"allup" }); });
+  window.addEventListener("blur", () => { if (capturing) out({ e:"allup" }); });
+
+  document.addEventListener("keydown", e => {
+    if (e.target === stage && capturing) return;
+    if (e.key==="Escape") { if (!$("join").hidden) $("join").hidden=true; else if (focusId) closeFocus(); }
+    if (focusId && !capturing && e.key==="ArrowRight") step(1);
+    if (focusId && !capturing && e.key==="ArrowLeft") step(-1);
+  });
+
+  function showJoin(){ $("jUrl").textContent = baseUrl(); $("jCode").textContent = code; $("join").hidden = false; }
+  $("tShowJoin").onclick = showJoin;
+  $("jClose").onclick = () => $("join").hidden = true;
+  $("tCopyLink").onclick = () => copy(joinUrl(code));
+  $("tQuality").onchange = () => { gridQ = $("tQuality").value; store.set("cv-q", gridQ); for (const id of learners.keys()) sendQ(id); };
+  $("tSize").onchange = () => { store.set("cv-tile",$("tSize").value); document.documentElement.style.setProperty("--tile-min",$("tSize").value+"px"); };
+
+  // ----- Eyes on me -----
+  function setEyesAll(on){
+    eyes = { on, text: $("tEyesMsg").value.trim() };
+    if (on) for (const id of learners.keys()) if (learners.get(id).ctl==="active") releaseControl(id);
+    for (const id of learners.keys()) send(id, { type:"eyes", on, text: eyes.text });
+    $("tEyes").textContent = on ? "Release screens" : "Eyes on me";
+    $("tEyes").classList.toggle("on", on);
+    $("tEyesNote").hidden = !on;
+    render();
+  }
+  $("tEyes").onclick = () => setEyesAll(!eyes.on);
+  $("tEyesMsg").addEventListener("keydown", e => { if (e.key==="Enter") { e.preventDefault(); setEyesAll(true); } });
+  $("tEyesMsg").value = store.get("cv-eyes-msg") || "";
+  $("tEyesMsg").addEventListener("change", () => { store.set("cv-eyes-msg", $("tEyesMsg").value.trim()); if (eyes.on) setEyesAll(true); });
+
+  // "New class" needs two clicks, since it disconnects everyone.
+  let armT;
+  $("tNew").onclick = () => {
+    const b = $("tNew");
+    if (!b.dataset.armed) { b.dataset.armed="1"; b.textContent="Click again to end this class"; b.classList.add("stuck"); armT=setTimeout(()=>{ delete b.dataset.armed; b.textContent="New class"; b.classList.remove("stuck"); },4000); return; }
+    clearTimeout(armT);
+    for (const id of learners.keys()) { releaseControl(id); send(id, { type:"eyes", on:false }); }
+    store.del("cv-trainer-code"); location.reload();
+  };
+  window.addEventListener("beforeunload", () => { for (const id of learners.keys()) { releaseControl(id); if (eyes.on) send(id, { type:"eyes", on:false }); } });
+
+  setInterval(() => { for (const [id,L] of learners) if (L.conn && L.conn.open) send(id,{type:"ping"}); else if (L.online) { L.online=false; render(); } }, 5000);
+
+  open();
+}
+})();
+</script>
+</body>
+</html>

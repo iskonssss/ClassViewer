@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Eyes on the trainer</title>
+<style>
+  html,body{margin:0;height:100%;background:#10161b;color:#fff;font:700 16px/1.1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:default;-webkit-user-select:none;user-select:none}
+  body{display:grid;place-items:center;text-align:center;padding:24px;box-sizing:border-box}
+  .icon{font-size:clamp(70px,12vw,160px)}
+  .msg{font-size:clamp(36px,6.5vw,96px);max-width:16ch;text-wrap:balance;margin-top:18px}
+</style>
+</head>
+<body>
+  <div><div class="icon" aria-hidden="true">👀</div><div class="msg" id="m"></div></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById("m").textContent = q.get("text") || "Eyes on the trainer, please";
+  document.addEventListener("contextmenu", e => e.preventDefault());
+</script>
+</body>
+</html>

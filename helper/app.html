@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:; connect-src https: wss: http: ws:; img-src 'self' data:">
+<title>ClassView Helper</title>
+<style>
+/* Layout: one narrow column; setup → join → live, one card at a time. */
+:root{
+  --bg:#eef1f3; --surface:#ffffff; --line:#d4dbe0; --fg:#18222a; --muted:#5d6b75;
+  --accent:#0f7a8a; --accent-ink:#ffffff; --stuck:#e0861a; --ctl:#7a3fd0;
+  --ok:#2f8a4c; --bad:#c2412d; --tile:#0f171d;
+  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e1418; --surface:#162027; --line:#26343d; --fg:#e4ebef; --muted:#93a3ad;
+  --accent:#3bb3c3; --accent-ink:#06171b; --stuck:#f0a03a; --ctl:#a77cf0;
+  --ok:#5cc07a; --bad:#ef6a55; --tile:#05090c; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font-body);padding:20px 18px 28px}
+[hidden]{display:none!important}
+h1,h2{margin:0;line-height:1.2}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--font-mono)}
+.label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.hint{color:var(--muted);font-size:13px;margin:0}
+.err{color:var(--bad);font-size:14px;margin:0}
+.brand{display:flex;align-items:baseline;gap:8px;margin-bottom:16px}
+.brand b{font-size:24px;letter-spacing:-.02em}
+.brand span{color:var(--muted)}
+.col{display:grid;gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;display:grid;gap:14px}
+.field{display:grid;gap:6px}
+input[type=text]{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:10px 12px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 14px;font-weight:600}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.stuck{background:var(--stuck);color:#1d1204;border-color:var(--stuck)}
+.btn.ctl{background:var(--ctl);color:#fff;border-color:var(--ctl)}
+.btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.perm{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.perm:first-of-type{border-top:0}
+.tick{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff;background:var(--muted)}
+.tick.ok{background:var(--ok)}
+.tick.no{background:var(--bad)}
+.status{display:flex;align-items:center;gap:10px;font-weight:600}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+.dot.live{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 25%,transparent)}
+.dot.wait{background:var(--stuck)}
+.dot.off{background:var(--bad)}
+.preview{width:100%;aspect-ratio:16/10;background:var(--tile);border-radius:8px;object-fit:contain}
+.bigstuck{font-size:19px;padding:16px;border-radius:12px}
+.ask{border:2px solid var(--ctl);background:color-mix(in srgb,var(--ctl) 10%,var(--surface))}
+.ask h2{font-size:18px}
+.active{border:2px solid var(--ctl)}
+.check{display:flex;gap:8px;align-items:center;font-size:14px}
+</style>
+</head>
+<body>
+<div class="brand"><b>ClassView</b><span>Helper</span></div>
+
+<!-- Mac setup -->
+<section id="setup" class="col" hidden>
+  <div class="card">
+    <h2 style="font-size:19px">Two Mac permissions, one time only</h2>
+    <p class="hint">macOS needs your OK before any app can share your screen or let your trainer help with the mouse and keyboard.</p>
+    <div>
+      <div class="perm">
+        <span class="tick" id="pScrTick">?</span>
+        <div><b>Screen Recording</b><p class="hint">So your trainer can see your screen.</p></div>
+        <button class="btn" id="pScrBtn">Allow</button>
+      </div>
+      <div class="perm">
+        <span class="tick" id="pAccTick">?</span>
+        <div><b>Accessibility</b><p class="hint">So your trainer can click and type when you allow it.</p></div>
+        <button class="btn" id="pAccBtn">Allow</button>
+      </div>
+    </div>
+    <p class="hint">In System Settings, switch on <b>ClassView Helper</b> in each list. macOS may ask you to quit and reopen the app; click the button below to do that.</p>
+    <div class="row">
+      <button class="btn primary" id="pRelaunch">Done, restart Helper</button>
+      <button class="btn" id="pSkip">Continue anyway</button>
+    </div>
+  </div>
+</section>
+
+<!-- Join -->
+<form id="joinForm" class="col" hidden autocomplete="off">
+  <div class="card">
+    <h2 style="font-size:20px">Join your class</h2>
+    <div class="field"><label class="label" for="jCode">Class code</label><input type="text" id="jCode" class="mono" maxlength="6" placeholder="On the projector, e.g. K7P2Q" required style="text-transform:uppercase;letter-spacing:.12em"></div>
+    <div class="field"><label class="label" for="jName">Your name</label><input type="text" id="jName" maxlength="40" placeholder="e.g. Aisyah" required></div>
+    <button class="btn primary" type="submit" id="jGo">Join and share my screen</button>
+    <p class="err" id="jErr" hidden></p>
+    <p class="hint">Your trainer will see your main screen. They can only control your laptop after you click <b>Allow</b>, and you can stop them at any time.</p>
+  </div>
+</form>
+
+<!-- Live -->
+<section id="live" class="col" hidden>
+  <div class="card">
+    <div class="status"><span class="dot" id="lDot"></span><span id="lStatus">Connecting…</span></div>
+    <video id="lPreview" class="preview" muted playsinline autoplay></video>
+    <button class="btn bigstuck" id="lStuck" type="button">I'm stuck</button>
+    <p class="hint" id="lCtlInfo"></p>
+  </div>
+
+  <div class="card ask" id="ask" hidden>
+    <h2>Your trainer wants to control your laptop</h2>
+    <p class="hint">They'll be able to move your mouse and type, to help you in Fusion 360. You can stop it at any time with the Stop button or <b id="hk1">Ctrl+Shift+X</b>.</p>
+    <label class="check"><input type="checkbox" id="askAlways"> Allow without asking again for the rest of this class</label>
+    <div class="row">
+      <button class="btn ctl" id="askYes">Allow</button>
+      <button class="btn" id="askNo">Decline</button>
+    </div>
+  </div>
+
+  <div class="card active" id="active" hidden>
+    <h2 style="font-size:18px;color:var(--ctl)">Your trainer is controlling this laptop</h2>
+    <p class="hint">Press <b id="hk2">Ctrl+Shift+X</b> or click Stop to take back control.</p>
+    <button class="btn ctl" id="stopCtl">Stop control</button>
+  </div>
+
+  <div class="row"><button class="btn" id="leave">Leave class</button></div>
+</section>
+
+<script src="node_modules/peerjs/dist/peerjs.min.js"></script>
+<script>
+(async () => {
+"use strict";
+const $ = id => document.getElementById(id);
+const H = window.helper;
+const env = await H.env();
+const IS_MAC = env.platform === "darwin";
+const PREFIX = "forgecraft-classview-";
+const QUALITY = {
+  low:{width:960,fps:3,bitrate:250000}, med:{width:1280,fps:5,bitrate:500000}, high:{width:1600,fps:8,bitrate:900000},
+  focus:{width:1920,fps:15,bitrate:2500000}, control:{width:1920,fps:24,bitrate:3500000},
+};
+if (IS_MAC) { $("hk1").textContent = $("hk2").textContent = "⌘⇧X"; }
+const store = { get(k){ try{ return localStorage.getItem(k); }catch{ return null; } }, set(k,v){ try{ localStorage.setItem(k,v); }catch{} } };
+function view(v){ for (const id of ["setup","joinForm","live"]) $(id).hidden = id!==v; }
+
+// ---------- state ----------
+let peer, conn, call, stream, stuck=false, quality="med", retryT, leaving=false, trainerId;
+let ctlState = "idle", autoAllow = !!env.testAutoAllow, trainerPlatform = "win";
+
+// ---------- setup ----------
+let perms = await H.permissions();
+function paintPerms(){
+  const s = perms.screen === "granted", a = !!perms.accessibility;
+  $("pScrTick").className = "tick " + (s ? "ok" : "no"); $("pScrTick").textContent = s ? "✓" : "!";
+  $("pAccTick").className = "tick " + (a ? "ok" : "no"); $("pAccTick").textContent = a ? "✓" : "!";
+  $("pScrBtn").textContent = s ? "Allowed" : "Allow"; $("pScrBtn").disabled = s;
+  $("pAccBtn").textContent = a ? "Allowed" : "Allow"; $("pAccBtn").disabled = a;
+}
+$("pScrBtn").onclick = async () => {
+  // Trying to capture once makes macOS list the app under Screen Recording.
+  try { const s = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:false }); s.getTracks().forEach(t=>t.stop()); } catch {}
+  await H.openSettings("screen");
+};
+$("pAccBtn").onclick = async () => { await H.askAccessibility(); await H.openSettings("accessibility"); };
+$("pRelaunch").onclick = () => H.relaunch();
+$("pSkip").onclick = () => startJoin();
+setInterval(async () => { if (!$("setup").hidden || !$("live").hidden) { perms = await H.permissions(); paintPerms(); sendCaps(); } }, 2000);
+
+if (IS_MAC && (perms.screen !== "granted" || !perms.accessibility)) { paintPerms(); view("setup"); }
+else startJoin();
+
+// ---------- join ----------
+function startJoin(){
+  view("joinForm");
+  $("jCode").value = store.get("cv-code") || "";
+  $("jName").value = store.get("cv-name") || "";
+  ($("jName").value ? $("jCode") : $("jName")).focus();
+  if (env.autoJoin) { const [c,n] = env.autoJoin.split(":"); $("jCode").value=c; $("jName").value=n; join(); }
+}
+$("joinForm").addEventListener("submit", e => { e.preventDefault(); join(); });
+
+
+function canControl(){ return env.robotOk && (!IS_MAC || !!perms.accessibility); }
+function ctlWhy(){
+  if (!env.robotOk) return "The control part of the Helper didn't load on this laptop.";
+  if (IS_MAC && !perms.accessibility) return "This Mac hasn't allowed Accessibility for ClassView Helper yet, so you can watch but not control.";
+  return "";
+}
+
+async function join(){
+  $("jErr").hidden = true;
+  const code = ($("jCode").value||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6);
+  const name = $("jName").value.trim();
+  if (code.length < 4) return jErr("Check the class code on the projector.");
+  if (!name) return jErr("Enter your name.");
+  store.set("cv-code", code); store.set("cv-name", name);
+  trainerId = PREFIX + code + "-trainer";
+  try { stream = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:24 }, audio:false }); }
+  catch (e) { return jErr(IS_MAC ? "Couldn't share your screen. Allow ClassView Helper under System Settings → Privacy & Security → Screen Recording, then restart the Helper." : "Couldn't share your screen (" + (e && e.name || "error") + "). Close and reopen the Helper, then try again."); }
+  prepStream();
+  $("lPreview").srcObject = stream;
+  view("live");
+  setStatus("wait", "Connecting to your trainer…");
+  paintCtl();
+  peer = new Peer(undefined, Object.assign({ debug:1 }, env.peer || {}));
+  peer.on("open", connect);
+  peer.on("connection", c => c.close()); // only we connect out; nobody can connect in
+  peer.on("error", ex => {
+    if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
+    else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
+    retry();
+  });
+  peer.on("disconnected", () => { if (!leaving) setTimeout(()=>{ try{ peer.reconnect(); }catch{} }, 1500); });
+}
+function jErr(m){ $("jErr").textContent = m; $("jErr").hidden = false; }
+function prepStream(){
+  const tr = stream.getVideoTracks()[0];
+  try { tr.contentHint = "detail"; } catch {}
+  tr.addEventListener("ended", () => setStatus("off","Screen sharing stopped. Leave and join again to share."));
+}
+function retry(){ clearTimeout(retryT); if (!leaving) retryT = setTimeout(connect, 3000); }
+function connect(){
+  if (leaving || !peer || peer.destroyed) return;
+  if (peer.disconnected) { try{ peer.reconnect(); }catch{} return; }
+  try { conn && conn.close(); } catch {}
+  try { call && call.close(); } catch {}
+  conn = peer.connect(trainerId, { reliable:true, metadata: info() });
+  conn.on("open", () => { send(Object.assign({ type:"hello" }, info())); startCall(); });
+  conn.on("data", onData);
+  conn.on("close", () => { endControl(false); H.eyes(false); if (!leaving) { setStatus("wait","Trainer disconnected. Reconnecting…"); retry(); } });
+  conn.on("error", () => retry());
+}
+function startCall(){
+  if (!stream || !stream.active) return;
+  try { call && call.close(); } catch {}
+  call = peer.call(trainerId, stream, { metadata:{ name: $("jName").value.trim() } });
+  call.on("error", ()=>{});
+  setTimeout(applyQuality, 800);
+  setStatus("live", "Your screen is being shared with your trainer.");
+}
+function info(){ return { name:$("jName").value.trim(), stuck, sharing:!!(stream && stream.active), client:"helper", canControl:canControl(), ctlWhy:ctlWhy(), os:env.platform, version:env.version }; }
+function send(m){ try { if (conn && conn.open) conn.send(m); } catch {} }
+let lastCaps = null;
+function sendCaps(){ const c = canControl(); if (c !== lastCaps) { lastCaps = c; send({ type:"caps", canControl:c, ctlWhy:ctlWhy() }); paintCtl(); } }
+
+function onData(m){
+  if (!m || typeof m !== "object") return;
+  switch (m.type) {
+    case "in": if (ctlState === "active") H.input(m); break;
+    case "quality": if (QUALITY[m.level]) { quality = m.level; applyQuality(); } break;
+    case "helped": setStuck(false); break;
+    case "ping": send({ type:"pong" }); break;
+    case "control-request":
+      trainerPlatform = m.platform === "mac" ? "mac" : "win";
+      if (!canControl()) { send({ type:"control-denied", reason:"unavailable" }); break; }
+      if (autoAllow) { grant(); break; }
+      ctlState = "asking"; paintCtl();
+      H.attention("Your trainer is asking to control your laptop");
+      break;
+    case "control-release": endControl(false); break;
+    case "eyes": H.eyes(!!m.on, m.text || ""); break;
+    case "point": if (typeof m.x === "number" && typeof m.y === "number") H.point(m.x, m.y); break;
+  }
+}
+async function grant(){
+  ctlState = "active"; paintCtl();
+  await H.controlStart(trainerPlatform);
+  send({ type:"control-granted" });
+}
+async function endControl(notify){
+  if (ctlState === "idle") return;
+  const wasActive = ctlState === "active";
+  ctlState = "idle"; paintCtl();
+  if (wasActive) await H.controlEnd();
+  if (notify) send({ type:"control-ended" });
+}
+$("askYes").onclick = () => { if ($("askAlways").checked) autoAllow = true; grant(); };
+$("askNo").onclick = () => { ctlState = "idle"; paintCtl(); send({ type:"control-denied", reason:"declined" }); };
+$("stopCtl").onclick = () => endControl(true);
+H.onStopHotkey(() => endControl(true));
+
+function paintCtl(){
+  $("ask").hidden = ctlState !== "asking";
+  $("active").hidden = ctlState !== "active";
+  $("lCtlInfo").textContent = canControl()
+    ? (autoAllow ? "Your trainer can take control without asking for the rest of this class." : "Your trainer will ask before taking control.")
+    : ctlWhy();
+}
+async function applyQuality(){
+  const q = QUALITY[quality]; if (!stream) return;
+  const tr = stream.getVideoTracks()[0]; if (!tr) return;
+  try { await tr.applyConstraints({ width:{ max:q.width }, frameRate:{ max:q.fps } }); } catch {}
+  const pc = call && call.peerConnection; if (!pc) return;
+  for (const s of pc.getSenders()) {
+    if (!s.track || s.track.kind !== "video") continue;
+    try { const p = s.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings=[{}]; p.encodings[0].maxBitrate=q.bitrate; p.encodings[0].maxFramerate=q.fps; await s.setParameters(p); } catch {}
+  }
+}
+function setStatus(kind, text){ $("lDot").className = "dot " + kind; $("lStatus").textContent = text; }
+function setStuck(v){
+  stuck = v;
+  $("lStuck").textContent = v ? "Waiting for help… (click to cancel)" : "I'm stuck";
+  $("lStuck").className = "btn bigstuck" + (v ? " stuck" : "");
+  send({ type:"stuck", value:v });
+}
+$("lStuck").onclick = () => setStuck(!stuck);
+$("leave").onclick = async () => {
+  leaving = true; clearTimeout(retryT);
+  await endControl(true);
+  send({ type:"bye" });
+  setTimeout(() => { try{ stream && stream.getTracks().forEach(t=>t.stop()); }catch{} try{ peer && peer.destroy(); }catch{} location.reload(); }, 300);
+};
+window.addEventListener("beforeunload", () => { send({ type:"bye" }); });
+})();
+</script>
+</body>
+</html>
