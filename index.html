@@ -105,7 +105,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .lanebody .tile{width:var(--tile-min,260px);max-width:100%}
 .lanebody:empty::after{content:"Drag screens here";color:var(--muted);font-size:13px;align-self:center;padding-left:6px}
 .seatwrap{overflow-x:auto;padding-bottom:4px}
-.seats{display:grid;gap:10px;grid-template-columns:repeat(var(--cols,6),minmax(90px,var(--tile-min,260px)));justify-content:center}
+.seats{display:grid;gap:10px;grid-template-columns:repeat(var(--cols,6),minmax(64px,var(--tile-min,260px)));justify-content:center}
 .seat{border:2px dashed var(--line);border-radius:10px;min-height:calc(var(--tile-min,260px) * .62 + 34px);display:grid;place-items:center;color:var(--muted);font-size:12px;text-align:center;padding:4px}
 .seat.filled{border:0;padding:0;display:block;text-align:left}
 .seat .tile{width:100%}
@@ -116,6 +116,13 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .compact .pill{font-size:10px;padding:1px 6px}
 .compact .pill.kind{display:none}
 .compact .seat{font-size:10px}
+.tiny .meta{padding:2px 4px;font-size:10px;line-height:1.2}
+.tiny .pill{display:none}
+.tiny .seat{font-size:9px;padding:2px;min-height:calc(var(--tile-min,80px) * .625 + 20px)}
+.tiny .lanebody{min-height:calc(var(--tile-min,80px) * .625 + 20px)}
+.tiny .grid,.tiny .lanebody,.tiny .seats{gap:5px}
+.tiny .tile{border-width:2px;border-radius:6px}
+.tiny .lanebody:empty::after{font-size:11px}
 .compact .grid,.compact .lanebody,.compact .seats{gap:8px}
 .grid.mode-rows .tile,.grid.mode-seats .tile{cursor:grab}
 .layoutbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;width:100%}
@@ -227,7 +234,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
       <label class="hint" for="tQuality">Grid quality</label>
       <select id="tQuality"><option value="low">Low</option><option value="med" selected>Medium</option><option value="high">High</option></select>
       <label class="hint" for="tSize">Tile size</label>
-      <select id="tSize"><option value="120">Tiny</option><option value="160">Extra small</option><option value="200">Small</option><option value="260" selected>Medium</option><option value="360">Large</option></select>
+      <select id="tSize"><option value="80">Tiny</option><option value="120">Extra small</option><option value="160">Smaller</option><option value="200">Small</option><option value="260" selected>Medium</option><option value="360">Large</option></select>
       <label class="hint" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="tSound" checked> Sound on stuck</label>
       <button class="btn" id="tShowJoin">Show join code</button>
       <button class="btn" id="tCopyLink">Copy join link</button>
@@ -932,7 +939,7 @@ function startTrainer(){
   $("tCopyLink").onclick = () => copy(joinUrl(code));
   $("tQuality").onchange = () => { gridQ = $("tQuality").value; store.set("cv-q", gridQ); for (const id of learners.keys()) sendQ(id); };
   $("tSize").onchange = () => { store.set("cv-tile",$("tSize").value); applySize(); };
-  function applySize(){ const v = Number($("tSize").value)||260; document.documentElement.style.setProperty("--tile-min", v+"px"); $("tGrid").parentElement.classList.toggle("compact", v <= 160); }
+  function applySize(){ const v = Number($("tSize").value)||260; document.documentElement.style.setProperty("--tile-min", v+"px"); $("tGrid").parentElement.classList.toggle("compact", v <= 160); $("tGrid").parentElement.classList.toggle("tiny", v <= 100); }
   applySize();
 
   // ----- Eyes on me -----
