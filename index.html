@@ -149,7 +149,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
   </div>
   <div class="dl">
     <span class="label">Recommended for learners</span>
-    <p style="margin:0">Get the <b>ClassView Helper</b> app so your trainer can click into Fusion 360 and help you directly. It only works while you have it open, and you approve each time.</p>
+    <p style="margin:0">Get the <b>ClassView Helper</b> app so your trainer can click into Fusion 360 and help you directly. It only works while you have it open, and you can stop your trainer at any time.</p>
     <div class="links">
       <a class="btn" href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Windows.exe">Download for Windows</a>
       <a class="btn" href="https://github.com/iskonssss/ClassViewer/releases/latest/download/ClassView-Helper-Mac-AppleSilicon.zip">Mac with Apple chip (M1–M4)</a>
@@ -556,8 +556,8 @@ function startTrainer(){
       case "caps": Object.assign(L, { canControl:!!m.canControl, ctlWhy:m.ctlWhy }); break;
       case "stuck": { const was=L.stuck; L.stuck=!!m.value; L.stuckAt = L.stuck ? Date.now() : null; if (L.stuck && !was) beep(); break; }
       case "sharing": L.sharing=!!m.value; if(!m.value) L.stream=null; break;
-      case "control-granted": L.ctl="active"; if (focusId===id) { startCapture(); toast((L.name||"Learner")+" allowed control"); } sendQ(id); break;
-      case "control-denied": L.ctl="idle"; if (focusId===id) toast(m.reason==="browser" ? "This learner joined in the browser, so control isn't available" : (L.name||"Learner")+" declined control"); break;
+      case "control-granted": L.ctl="active"; if (focusId===id) { startCapture(); toast("You're in control of "+(L.name||"this laptop")); } sendQ(id); break;
+      case "control-denied": L.ctl="idle"; if (focusId===id) toast(m.reason==="browser" ? "This learner joined in the browser, so control isn't available" : (L.name||"Learner")+" couldn't be controlled"); break;
       case "control-ended": L.ctl="idle"; if (focusId===id) { stopCapture(); toast((L.name||"Learner")+" ended control"); } sendQ(id); break;
       case "bye": learners.delete(id); if (focusId===id) closeFocus(); break;
     }
@@ -647,11 +647,11 @@ function startTrainer(){
     if (v.srcObject !== want) { v.srcObject = want; if (want) v.play().catch(()=>{}); }
     const b = $("oCtl"), n = $("oNote");
     b.disabled = !L.online || !L.canControl || L.ctl==="requesting";
-    b.textContent = L.ctl==="active" ? "Release control" : L.ctl==="requesting" ? "Waiting for approval…" : "Take control";
+    b.textContent = L.ctl==="active" ? "Release control" : L.ctl==="requesting" ? "Connecting…" : "Take control";
     if (!L.online) n.textContent = "This learner is offline.";
     else if (L.client!=="helper") n.textContent = "Joined in the browser, so you can watch but not control. Ask them to open the ClassView Helper app.";
     else if (!L.canControl) n.textContent = L.ctlWhy || "Control isn't set up on this laptop yet. On a Mac, the learner needs to allow Accessibility for ClassView Helper.";
-    else if (L.ctl==="requesting") n.textContent = "Asked " + (L.name||"the learner") + " to allow control. They need to click Allow on their laptop.";
+    else if (L.ctl==="requesting") n.textContent = "Taking control… If nothing happens, " + (L.name||"the learner") + " may have an older Helper that asks them to click Allow. Ask them to download the latest one.";
     else if (L.ctl==="active") n.innerHTML = "<b>You're controlling " + esc(L.name||"this laptop") + ".</b> Click inside the screen first, then use your mouse and keyboard. Your keys go to their laptop while the screen has focus.";
     else n.textContent = "";
     if (L.ctl==="active") pointMode = false;

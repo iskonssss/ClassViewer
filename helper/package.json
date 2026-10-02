@@ -1,7 +1,7 @@
 {
   "name": "classview-helper",
   "productName": "ClassView Helper",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lets your Forgecraft trainer see your screen and help you in Fusion 360",
   "author": "Forgecraft Pte Ltd",
   "main": "main.js",
@@ -27,7 +27,9 @@
       "main.js",
       "preload.js",
       "app.html",
-      "bar.html", "eyes.html", "point.html",
+      "bar.html",
+      "eyes.html",
+      "point.html",
       "node_modules/peerjs/dist/peerjs.min.js",
       "node_modules/@jitsi/robotjs/**/*"
     ],

@@ -56,8 +56,6 @@ input[type=text]{width:100%;border:1px solid var(--line);background:var(--surfac
 .dot.off{background:var(--bad)}
 .preview{width:100%;aspect-ratio:16/10;background:var(--tile);border-radius:8px;object-fit:contain}
 .bigstuck{font-size:19px;padding:16px;border-radius:12px}
-.ask{border:2px solid var(--ctl);background:color-mix(in srgb,var(--ctl) 10%,var(--surface))}
-.ask h2{font-size:18px}
 .active{border:2px solid var(--ctl)}
 .check{display:flex;gap:8px;align-items:center;font-size:14px}
 </style>
@@ -98,7 +96,7 @@ input[type=text]{width:100%;border:1px solid var(--line);background:var(--surfac
     <div class="field"><label class="label" for="jName">Your name</label><input type="text" id="jName" maxlength="40" placeholder="e.g. Aisyah" required></div>
     <button class="btn primary" type="submit" id="jGo">Join and share my screen</button>
     <p class="err" id="jErr" hidden></p>
-    <p class="hint">Your trainer will see your main screen. They can only control your laptop after you click <b>Allow</b>, and you can stop them at any time.</p>
+    <p class="hint">By joining, you agree that your trainer can see your main screen and can take control of your mouse and keyboard to help you during class. A purple bar shows whenever they're in control, and you can stop it at any time with <b id="hk0">Ctrl+Shift+X</b>.</p>
   </div>
 </form>
 
@@ -111,15 +109,6 @@ input[type=text]{width:100%;border:1px solid var(--line);background:var(--surfac
     <p class="hint" id="lCtlInfo"></p>
   </div>
 
-  <div class="card ask" id="ask" hidden>
-    <h2>Your trainer wants to control your laptop</h2>
-    <p class="hint">They'll be able to move your mouse and type, to help you in Fusion 360. You can stop it at any time with the Stop button or <b id="hk1">Ctrl+Shift+X</b>.</p>
-    <label class="check"><input type="checkbox" id="askAlways"> Allow without asking again for the rest of this class</label>
-    <div class="row">
-      <button class="btn ctl" id="askYes">Allow</button>
-      <button class="btn" id="askNo">Decline</button>
-    </div>
-  </div>
 
   <div class="card active" id="active" hidden>
     <h2 style="font-size:18px;color:var(--ctl)">Your trainer is controlling this laptop</h2>
@@ -143,13 +132,13 @@ const QUALITY = {
   low:{width:960,fps:3,bitrate:250000}, med:{width:1280,fps:5,bitrate:500000}, high:{width:1600,fps:8,bitrate:900000},
   focus:{width:1920,fps:15,bitrate:2500000}, control:{width:1920,fps:24,bitrate:3500000},
 };
-if (IS_MAC) { $("hk1").textContent = $("hk2").textContent = "⌘⇧X"; }
+if (IS_MAC) { $("hk0").textContent = $("hk2").textContent = "⌘⇧X"; }
 const store = { get(k){ try{ return localStorage.getItem(k); }catch{ return null; } }, set(k,v){ try{ localStorage.setItem(k,v); }catch{} } };
 function view(v){ for (const id of ["setup","joinForm","live"]) $(id).hidden = id!==v; }
 
 // ---------- state ----------
 let peer, conn, call, stream, stuck=false, quality="med", retryT, leaving=false, trainerId;
-let ctlState = "idle", autoAllow = !!env.testAutoAllow, trainerPlatform = "win";
+let ctlState = "idle", trainerPlatform = "win";
 
 // ---------- setup ----------
 let perms = await H.permissions();
@@ -257,9 +246,7 @@ function onData(m){
     case "control-request":
       trainerPlatform = m.platform === "mac" ? "mac" : "win";
       if (!canControl()) { send({ type:"control-denied", reason:"unavailable" }); break; }
-      if (autoAllow) { grant(); break; }
-      ctlState = "asking"; paintCtl();
-      H.attention("Your trainer is asking to control your laptop");
+      grant();
       break;
     case "control-release": endControl(false); break;
     case "eyes": H.eyes(!!m.on, m.text || ""); break;
@@ -278,16 +265,13 @@ async function endControl(notify){
   if (wasActive) await H.controlEnd();
   if (notify) send({ type:"control-ended" });
 }
-$("askYes").onclick = () => { if ($("askAlways").checked) autoAllow = true; grant(); };
-$("askNo").onclick = () => { ctlState = "idle"; paintCtl(); send({ type:"control-denied", reason:"declined" }); };
 $("stopCtl").onclick = () => endControl(true);
 H.onStopHotkey(() => endControl(true));
 
 function paintCtl(){
-  $("ask").hidden = ctlState !== "asking";
   $("active").hidden = ctlState !== "active";
   $("lCtlInfo").textContent = canControl()
-    ? (autoAllow ? "Your trainer can take control without asking for the rest of this class." : "Your trainer will ask before taking control.")
+    ? "Your trainer can take control to help you. You'll see a purple bar while they do."
     : ctlWhy();
 }
 async function applyQuality(){
