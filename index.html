@@ -96,6 +96,26 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .pill.off{background:var(--bad);color:#fff}
 .pill.kind{border:1px solid var(--line);color:var(--muted);font-weight:600}
 .pill.kind.helper{border-color:var(--ctl);color:var(--ctl)}
+.grid.mode-rows,.grid.mode-seats{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.lane{border:1px dashed var(--line);border-radius:12px;padding:8px 10px 10px;display:grid;gap:8px;min-width:0}
+.lane h3,.frontbar{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0}
+.lane.tray{border:2px dashed var(--accent)}
+.lane.tray h3{color:var(--accent)}
+.lanebody{display:flex;flex-wrap:wrap;gap:12px;min-height:96px;align-content:flex-start}
+.lanebody .tile{width:var(--tile-min,260px);max-width:100%}
+.lanebody:empty::after{content:"Drag screens here";color:var(--muted);font-size:13px;align-self:center;padding-left:6px}
+.seatwrap{overflow-x:auto;padding-bottom:4px}
+.seats{display:grid;gap:10px;grid-template-columns:repeat(var(--cols,6),minmax(120px,var(--tile-min,260px)));justify-content:center}
+.seat{border:2px dashed var(--line);border-radius:10px;min-height:120px;display:grid;place-items:center;color:var(--muted);font-size:12px;text-align:center;padding:4px}
+.seat.filled{border:0;padding:0;display:block;text-align:left}
+.seat .tile{width:100%}
+.frontbar{text-align:center;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--surface)}
+.over{background:color-mix(in srgb,var(--accent) 12%,transparent);border-color:var(--accent)!important}
+.tile.dragging{opacity:.35}
+.grid.mode-rows .tile,.grid.mode-seats .tile{cursor:grab}
+.layoutbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;width:100%}
+.layoutbar input[type=number]{width:4.2em;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px}
+.layoutbar select{width:auto}
 .empty{grid-column:1/-1;border:2px dashed var(--line);border-radius:12px;padding:40px 20px;text-align:center;color:var(--muted);display:grid;gap:8px;justify-items:center}
 .empty .code{font-size:40px}
 
@@ -207,6 +227,19 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
       <button class="btn" id="tShowJoin">Show join code</button>
       <button class="btn" id="tCopyLink">Copy join link</button>
       <button class="btn" id="tNew">New class</button>
+    </div>
+    <div class="layoutbar">
+      <label class="hint" for="tLayout">Layout</label>
+      <select id="tLayout">
+        <option value="auto">Auto (stuck first)</option>
+        <option value="rows">Rows</option>
+        <option value="seats">Seats (rows × columns)</option>
+      </select>
+      <span class="lyopt" id="lyRows"><label class="hint" for="tRows">Rows</label> <input type="number" id="tRows" min="1" max="12" value="4"></span>
+      <span class="lyopt" id="lyCols"><label class="hint" for="tCols">Columns</label> <input type="number" id="tCols" min="1" max="12" value="6"></span>
+      <label class="hint lyopt" id="lyFlip" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="tFlip"> Front row at bottom</label>
+      <button class="btn small lyopt" id="tClearSeats">Clear seating</button>
+      <span class="hint lyopt" id="lyHint">Drag screens to where each learner sits. Places are remembered by name.</span>
     </div>
   </header>
   <p class="err" id="tErr" hidden style="padding-top:12px"></p>
@@ -601,13 +634,14 @@ function startTrainer(){
       let el = tiles.get(id);
       if (!el) {
         el = document.createElement("div");
-        el.className = "tile"; el.tabIndex = 0; el.setAttribute("role","button");
+        el.className = "tile"; el.tabIndex = 0; el.setAttribute("role","button"); el.dataset.id = id;
+        el.addEventListener("dragstart", e => { dragId = id; el.classList.add("dragging"); try { e.dataTransfer.setData("text/plain", id); e.dataTransfer.effectAllowed = "move"; } catch {} });
+        el.addEventListener("dragend", () => { dragId = null; el.classList.remove("dragging"); clearOver(); });
         el.innerHTML = `<video muted playsinline autoplay></video><div class="noscreen"></div><div class="meta"><span class="name"></span><span class="pill stuck" hidden>Stuck</span><span class="pill off" hidden>Offline</span><span class="pill kind"></span></div>`;
         el.addEventListener("click", () => openFocus(id));
         el.addEventListener("keydown", e => { if (e.key==="Enter"||e.key===" ") { e.preventDefault(); openFocus(id); } });
         tiles.set(id, el);
       }
-      grid.appendChild(el);
       const v = el.querySelector("video");
       const want = L.stream && L.online ? L.stream : null;
       if (v.srcObject !== want) { v.srcObject = want; if (want) v.play().catch(()=>{}); }
@@ -623,9 +657,133 @@ function startTrainer(){
       el.classList.toggle("is-ctl", L.ctl==="active");
       el.classList.toggle("is-off", !L.online);
       el.setAttribute("aria-label", (L.name||"Learner") + (L.stuck ? ", stuck" : "") + ". Open full screen");
+      el.draggable = seat.mode !== "auto";
     }
+    placeTiles(list);
     if (focusId) fillFocus();
   }
+
+  // ----- seating layout: rows or a rows × columns seat plan, remembered by learner name -----
+  let dragId = null;
+  let seat = { mode:"auto", rows:4, cols:6, flip:false, place:{} };
+  try { Object.assign(seat, JSON.parse(store.get("cv-seating") || "{}")); } catch {}
+  if (!seat.place || typeof seat.place !== "object") seat.place = {};
+  function saveSeat(){ store.set("cv-seating", JSON.stringify(seat)); }
+  const nk = L => (L && L.name || "").trim().toLowerCase();
+  function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function clearOver(){ document.querySelectorAll(".over").forEach(x => x.classList.remove("over")); }
+
+  function placeTiles(list){
+    const grid = $("tGrid");
+    grid.className = "grid mode-" + seat.mode;
+    grid.style.setProperty("--cols", seat.cols);
+    grid.replaceChildren();
+    if (seat.mode === "auto") { for (const [id] of list) grid.appendChild(tiles.get(id)); return replay(); }
+    const byName = [...list].sort(([,a],[,b]) => (a.name||"").localeCompare(b.name||""));
+    const unseated = [];
+    const front = el("div", "frontbar", "Front of class");
+    if (seat.mode === "rows") {
+      const lanes = Array.from({ length: seat.rows }, () => []);
+      for (const [id, L] of byName) {
+        const p = seat.place[nk(L)];
+        if (p && p.r >= 0 && p.r < seat.rows) lanes[p.r].push([id, p.c || 0]); else unseated.push(id);
+      }
+      lanes.forEach(l => l.sort((a,b) => a[1]-b[1]));
+      if (unseated.length) grid.appendChild(lane(-1, "Not placed yet · drag into a row", unseated));
+      const order = [...lanes.keys()]; if (seat.flip) order.reverse();
+      if (!seat.flip) grid.appendChild(front);
+      for (const r of order) {
+        let ids = lanes[r].map(x => x[0]); if (seat.flip) ids.reverse();
+        grid.appendChild(lane(r, "Row " + (r+1) + (r===0 ? " · front" : r===seat.rows-1 && seat.rows>1 ? " · back" : ""), ids));
+      }
+      if (seat.flip) grid.appendChild(front);
+    } else {
+      const cells = new Map();
+      for (const [id, L] of byName) {
+        const p = seat.place[nk(L)], key = p && (p.r + "," + p.c);
+        if (p && p.r >= 0 && p.r < seat.rows && p.c >= 0 && p.c < seat.cols && !cells.has(key)) cells.set(key, id); else unseated.push(id);
+      }
+      if (unseated.length) grid.appendChild(lane(-1, "Not seated yet · drag onto a seat", unseated));
+      if (!seat.flip) grid.appendChild(front);
+      const wrap = el("div", "seatwrap"), g = el("div", "seats");
+      for (let dr = 0; dr < seat.rows; dr++) for (let dc = 0; dc < seat.cols; dc++) {
+        const r = seat.flip ? seat.rows-1-dr : dr, c = seat.flip ? seat.cols-1-dc : dc;
+        const cell = el("div", "seat"); cell.dataset.r = r; cell.dataset.c = c;
+        const id = cells.get(r + "," + c);
+        if (id) { cell.classList.add("filled"); cell.appendChild(tiles.get(id)); }
+        else cell.textContent = "Row " + (r+1) + " · Seat " + (c+1);
+        g.appendChild(cell);
+      }
+      wrap.appendChild(g); grid.appendChild(wrap);
+      if (seat.flip) grid.appendChild(front);
+    }
+    replay();
+  }
+  function lane(r, title, ids){
+    const box = el("section", "lane" + (r < 0 ? " tray" : ""));
+    box.appendChild(el("h3", null, title));
+    const body = el("div", "lanebody"); body.dataset.r = r;
+    for (const id of ids) body.appendChild(tiles.get(id));
+    box.appendChild(body);
+    return box;
+  }
+  function replay(){ for (const t of tiles.values()) { const v = t.querySelector("video"); if (v && v.srcObject && v.paused) v.play().catch(()=>{}); } }
+
+  function dropTarget(e){ return e.target.closest && e.target.closest(".lanebody, .seat"); }
+  $("tGrid").addEventListener("dragover", e => {
+    if (!dragId) return;
+    const t = dropTarget(e); if (!t) return;
+    e.preventDefault(); try { e.dataTransfer.dropEffect = "move"; } catch {}
+    if (!t.classList.contains("over")) { clearOver(); t.classList.add("over"); }
+  });
+  $("tGrid").addEventListener("dragleave", e => { const t = dropTarget(e); if (t && !t.contains(e.relatedTarget)) t.classList.remove("over"); });
+  $("tGrid").addEventListener("drop", e => {
+    const t = dropTarget(e); if (!t || !dragId) return;
+    e.preventDefault(); clearOver();
+    const L = learners.get(dragId); if (!L) return;
+    const me = nk(L), old = seat.place[me];
+    if (t.classList.contains("lanebody")) {
+      const r = Number(t.dataset.r);
+      if (r < 0) { delete seat.place[me]; }
+      else {
+        const shown = [...t.querySelectorAll(".tile")].filter(x => x.dataset.id !== dragId);
+        let idx = shown.findIndex(x => { const b = x.getBoundingClientRect(); return e.clientY < b.top || (e.clientY <= b.bottom && e.clientX < b.left + b.width/2); });
+        if (idx < 0) idx = shown.length;
+        let ids = shown.map(x => x.dataset.id);
+        if (seat.flip) { ids.reverse(); idx = ids.length - idx; }
+        ids.splice(idx, 0, dragId);
+        ids.forEach((id, i) => { const LL = learners.get(id); if (LL) seat.place[nk(LL)] = { r, c: i }; });
+      }
+    } else {
+      const r = Number(t.dataset.r), c = Number(t.dataset.c);
+      const occ = t.querySelector(".tile");
+      if (occ && occ.dataset.id !== dragId) {
+        const O = learners.get(occ.dataset.id);
+        if (O) { if (old && old.r < seat.rows && old.c < seat.cols) seat.place[nk(O)] = { r: old.r, c: old.c }; else delete seat.place[nk(O)]; }
+      }
+      seat.place[me] = { r, c };
+    }
+    saveSeat(); render();
+  });
+
+  function paintLayoutBar(){
+    $("tLayout").value = seat.mode; $("tRows").value = seat.rows; $("tCols").value = seat.cols; $("tFlip").checked = !!seat.flip;
+    $("lyRows").hidden = $("lyFlip").hidden = $("tClearSeats").hidden = $("lyHint").hidden = seat.mode === "auto";
+    $("lyCols").hidden = seat.mode !== "seats";
+  }
+  const clampN = v => Math.max(1, Math.min(12, Math.round(Number(v)) || 1));
+  $("tLayout").onchange = () => { seat.mode = $("tLayout").value; saveSeat(); paintLayoutBar(); render(); };
+  $("tRows").onchange = () => { seat.rows = clampN($("tRows").value); saveSeat(); paintLayoutBar(); render(); };
+  $("tCols").onchange = () => { seat.cols = clampN($("tCols").value); saveSeat(); paintLayoutBar(); render(); };
+  $("tFlip").onchange = () => { seat.flip = $("tFlip").checked; saveSeat(); render(); };
+  let clearArm;
+  $("tClearSeats").onclick = () => {
+    const b = $("tClearSeats");
+    if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Click again to clear"; clearArm = setTimeout(() => { delete b.dataset.armed; b.textContent = "Clear seating"; }, 4000); return; }
+    clearTimeout(clearArm); delete b.dataset.armed; b.textContent = "Clear seating";
+    seat.place = {}; saveSeat(); render();
+  };
+  paintLayoutBar();
   function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
   // ----- focus view -----
