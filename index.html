@@ -199,6 +199,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
     <h2 style="font-size:22px">Join the class</h2>
     <div class="field"><label for="lCode" class="label">Class code</label><input type="text" id="lCode" class="mono" maxlength="6" placeholder="e.g. K7P2Q" required style="text-transform:uppercase;letter-spacing:.12em"></div>
     <div class="field"><label for="lName" class="label">Your name</label><input type="text" id="lName" maxlength="40" placeholder="e.g. Aisyah" required></div>
+    <p class="err" id="lNoShare" hidden>This device can't share its screen from a browser. iPads and phones don't allow it. Please join from a Windows or Mac laptop using Chrome or Edge.</p>
     <button class="btn primary" type="submit" id="lJoin">Share my screen</button>
     <p class="hint" style="margin:0">Your browser will ask what to share. Choose <b>Entire screen</b> so your trainer can see Fusion 360.</p>
     <p class="err" id="lErr" hidden></p>
@@ -348,6 +349,7 @@ $("pickLearner").onclick = () => startLearnerView("");
 // ================= LEARNER (browser, view only) =================
 function startLearnerView(code){
   show("learner");
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) { $("lNoShare").hidden = false; $("lJoin").disabled = true; }
   $("lCode").value = code || "";
   $("lName").value = store.get("cv-name") || "";
   (code ? $("lName") : $("lCode")).focus();
