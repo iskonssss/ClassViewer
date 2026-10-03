@@ -152,6 +152,9 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .join{position:fixed;inset:0;z-index:30;background:var(--bg);display:grid;place-items:center;text-align:center;padding:24px}
 .join .inner{display:grid;gap:18px;justify-items:center}
 .join .code{font-size:clamp(48px,12vw,140px);padding:8px 28px}
+.join{overflow:auto}
+#second .code{font-size:clamp(28px,5vw,52px);padding:6px 18px}
+.xclose{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right:16px;z-index:31}
 .join .url{font-family:var(--font-mono);font-size:clamp(16px,2.6vw,28px);word-break:break-all}
 .eyesbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .eyesbar input{width:14em}
@@ -292,6 +295,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 </div>
 
 <div id="second" class="join" hidden>
+  <button class="btn xclose" id="sX" aria-label="Close">✕ Close</button>
   <div class="inner" style="max-width:34rem">
     <span class="label" style="font-size:16px">Second screen (view only)</span>
     <p style="margin:0">On your iPad or another laptop, open <b class="mono" id="sUrl"></b>, then enter:</p>
@@ -306,6 +310,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 </div>
 
 <div id="join" class="join" hidden>
+  <button class="btn xclose" id="jX" aria-label="Close">✕ Close</button>
   <div class="inner">
     <span class="label" style="font-size:16px">Go to this page and enter the code</span>
     <span class="url" id="jUrl"></span>
@@ -697,7 +702,8 @@ function startTrainer(MONITOR){
   function monitorUrl(){ const u=new URL(location.href); u.hash=""; u.search="?monitor&class="+code+"&key="+monitorKey+extraParams(); return u.toString(); }
   function paintSecond(){ if ($("second").hidden) return; $("sUrl").textContent = baseUrl(); $("sCode").textContent = code; $("sKey").textContent = monitorKey; $("sCount").textContent = monitors.size ? monitors.size + " second screen" + (monitors.size>1?"s":"") + " connected." : "No second screen connected yet."; }
   $("tSecond").onclick = () => { $("second").hidden = false; paintSecond(); };
-  $("sClose").onclick = () => $("second").hidden = true;
+  $("sClose").onclick = $("sX").onclick = () => $("second").hidden = true;
+  $("jX").onclick = () => $("join").hidden = true;
   $("sCopy").onclick = () => copy(monitorUrl());
   $("sNewKey").onclick = () => {
     monitorKey = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000)); store.set("cv-monitor-key", monitorKey);
@@ -1102,7 +1108,7 @@ function startTrainer(MONITOR){
 
   document.addEventListener("keydown", e => {
     if (e.target === stage && capturing) return;
-    if (e.key==="Escape") { if (!$("join").hidden) $("join").hidden=true; else if (focusId) closeFocus(); }
+    if (e.key==="Escape") { if (!$("second").hidden) $("second").hidden=true; else if (!$("join").hidden) $("join").hidden=true; else if (focusId) closeFocus(); }
     if (focusId && !capturing && e.key==="ArrowRight") step(1);
     if (focusId && !capturing && e.key==="ArrowLeft") step(-1);
   });
