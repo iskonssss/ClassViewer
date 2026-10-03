@@ -58,6 +58,9 @@ input[type=text]{width:100%;border:1px solid var(--line);background:var(--surfac
 .bigstuck{font-size:19px;padding:16px;border-radius:12px}
 .active{border:2px solid var(--ctl)}
 .check{display:flex;gap:8px;align-items:center;font-size:14px}
+details.opts{border-top:1px solid var(--line);padding-top:10px;display:grid;gap:8px}
+details.opts summary{cursor:pointer;font-weight:600;font-size:14px}
+details.opts[open]{gap:8px}
 </style>
 </head>
 <body>
@@ -96,6 +99,12 @@ input[type=text]{width:100%;border:1px solid var(--line);background:var(--surfac
     <div class="field"><label class="label" for="jName">Your name</label><input type="text" id="jName" maxlength="40" placeholder="e.g. Aisyah" required></div>
     <button class="btn primary" type="submit" id="jGo">Join and share my screen</button>
     <p class="err" id="jErr" hidden></p>
+    <details class="opts">
+      <summary>Start-up options for this laptop</summary>
+      <label class="check"><input type="checkbox" id="optStartup"> Open ClassView Helper when this computer starts</label>
+      <label class="check" id="optAutoWrap"><input type="checkbox" id="optAuto"> Then rejoin my last class automatically and share my screen</label>
+      <p class="hint">Best for a centre's own laptops. On your personal laptop, leave these off and join when class starts.</p>
+    </details>
     <p class="hint">By joining, you agree that your trainer can see your main screen and can take control of your mouse and keyboard to help you during class. A purple bar shows whenever they're in control, and you can stop it at any time with <b id="hk0">Ctrl+Shift+X</b>.</p>
   </div>
 </form>
@@ -164,13 +173,25 @@ if (IS_MAC && (perms.screen !== "granted" || !perms.accessibility)) { paintPerms
 else startJoin();
 
 // ---------- join ----------
-function startJoin(){
+async function startJoin(){
   view("joinForm");
   $("jCode").value = store.get("cv-code") || "";
   $("jName").value = store.get("cv-name") || "";
   ($("jName").value ? $("jCode") : $("jName")).focus();
-  if (env.autoJoin) { const [c,n] = env.autoJoin.split(":"); $("jCode").value=c; $("jName").value=n; join(); }
+  const onStart = await H.startupGet();
+  $("optStartup").checked = onStart;
+  $("optAuto").checked = store.get("cv-autojoin") === "1";
+  $("optAutoWrap").hidden = !onStart;
+  if (onStart || $("optAuto").checked) document.querySelector("details.opts").open = true;
+  if (env.autoJoin) { const [c,n] = env.autoJoin.split(":"); $("jCode").value=c; $("jName").value=n; join(); return; }
+  if (env.startup && $("optAuto").checked && $("jCode").value && $("jName").value) join();
 }
+$("optStartup").addEventListener("change", async () => {
+  await H.startupSet($("optStartup").checked);
+  $("optAutoWrap").hidden = !$("optStartup").checked;
+  if (!$("optStartup").checked) { $("optAuto").checked = false; store.set("cv-autojoin", "0"); }
+});
+$("optAuto").addEventListener("change", () => store.set("cv-autojoin", $("optAuto").checked ? "1" : "0"));
 $("joinForm").addEventListener("submit", e => { e.preventDefault(); join(); });
 
 

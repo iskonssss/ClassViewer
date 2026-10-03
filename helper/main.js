@@ -19,15 +19,23 @@ if (!app.requestSingleInstanceLock()) { app.quit(); }
 
 let win = null, bar = null, controlling = false, trainerPlatform = "win";
 
+// The portable Windows .exe unpacks to a temp folder each run; PORTABLE_EXECUTABLE_FILE is the real file.
+const EXE_PATH = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+const LAUNCHED_AT_STARTUP = process.argv.includes("--startup") || (IS_MAC && app.getLoginItemSettings().wasOpenedAtLogin);
+const ICON = path.join(__dirname, "icon.png");
+
 function createWindow() {
   win = new BrowserWindow({
     width: 480, height: 760, minWidth: 380, minHeight: 560,
     title: "ClassView Helper",
+    icon: ICON,
+    show: !LAUNCHED_AT_STARTUP,
     backgroundColor: "#eef1f3",
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, "app.html"));
+  if (LAUNCHED_AT_STARTUP) win.once("ready-to-show", () => { win.showInactive(); win.minimize(); });
   if (process.env.CLASSVIEW_DEBUG) {
     win.webContents.on("console-message", (e) => console.log("[renderer]", e.level, e.message));
     win.webContents.on("preload-error", (_e, p, err) => console.log("[preload-error]", p, err));
@@ -93,9 +101,16 @@ ipcMain.handle("env", () => ({
     secure: process.env.CLASSVIEW_PEERSECURE !== "0",
   } : null,
   autoJoin: process.env.CLASSVIEW_AUTOJOIN || null,
+  startup: LAUNCHED_AT_STARTUP,
   testAutoAllow: process.env.CLASSVIEW_TEST_AUTOALLOW === "1",
 }));
 ipcMain.handle("permissions", () => permissions());
+// "Start when this computer starts" (opt-in, per laptop)
+function loginOpts(on){ return IS_WIN ? { openAtLogin: on, path: EXE_PATH, args: ["--startup"] } : { openAtLogin: on }; }
+ipcMain.handle("startup-get", () => {
+  try { const s = IS_WIN ? app.getLoginItemSettings({ path: EXE_PATH, args: ["--startup"] }) : app.getLoginItemSettings(); return !!s.openAtLogin; } catch { return false; }
+});
+ipcMain.handle("startup-set", (_e, on) => { try { app.setLoginItemSettings(loginOpts(!!on)); return true; } catch { return false; } });
 ipcMain.handle("ask-accessibility", () => { if (IS_MAC) { try { return systemPreferences.isTrustedAccessibilityClient(true); } catch { return false; } } return true; });
 ipcMain.handle("open-settings", (_e, which) => {
   if (!IS_MAC) return;
@@ -194,7 +209,7 @@ function endControl() {
   releaseAll();
   try { globalShortcut.unregister("CommandOrControl+Shift+X"); } catch {}
   if (bar) bar.hide();
-  if (was && win) { if (win.isMinimized()) win.restore(); win.showInactive(); }
+  // Stay out of the learner's way: the window was minimized when control started, so leave it there.
 }
 
 // ---------- input injection ----------

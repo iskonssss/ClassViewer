@@ -14,5 +14,7 @@ contextBridge.exposeInMainWorld("helper", {
   point: (x, y) => ipcRenderer.invoke("point", x, y),
   onPoint: fn => ipcRenderer.on("point", (_e, m) => fn(m)),
   barStop: () => ipcRenderer.send("bar-stop"),
+  startupGet: () => ipcRenderer.invoke("startup-get"),
+  startupSet: on => ipcRenderer.invoke("startup-set", on),
   onStopHotkey: fn => ipcRenderer.on("stop-hotkey", () => fn()),
 });
