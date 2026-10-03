@@ -759,7 +759,11 @@ function startTrainer(MONITOR){
       render();
     }, 5000);
   }
+  let lastRoster = "";
   function applyRoster(m){
+    const sig = JSON.stringify([m.learners, m.seat]);
+    if (sig === lastRoster) return;
+    lastRoster = sig;
     const seen = new Set();
     for (const r of m.learners || []) {
       seen.add(r.id);
@@ -776,6 +780,7 @@ function startTrainer(MONITOR){
   function onData(id, m){
     const L = learners.get(id); if (!L || !m) return;
     L.lastSeen = Date.now();
+    if (m.type === "pong" || m.type === "ping") return; // heartbeat only: nothing on screen changes
     switch (m.type) {
       case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy, version:m.version,
         canMonitor: !!m.mon || (m.client==="helper" && verGte(m.version, "0.1.3")) }); send(id, { type:"monitors", ids:[...monitors.keys()] }); break;
@@ -818,7 +823,7 @@ function startTrainer(MONITOR){
     if (!list.length) {
       grid.innerHTML = `<div class="empty"><span class="label">Waiting for learners</span><span class="code">${code}</span><span>Learners open the ClassView Helper (or <b class="mono">${esc(baseUrl())}</b>) and enter this code.</span><button class="btn primary" id="emptyJoin">Show on projector</button></div>`;
       $("emptyJoin").onclick = showJoin;
-      tiles.clear();
+      tiles.clear(); lastPlan = "";
       sendRoster();
       return;
     }
@@ -840,14 +845,14 @@ function startTrainer(MONITOR){
       const want = L.stream && L.online ? L.stream : null;
       if (v.srcObject !== want) { v.srcObject = want; if (want) v.play().catch(()=>{}); }
       el.querySelector(".noscreen").hidden = !!want;
-      el.querySelector(".noscreen").textContent = !L.online ? "Disconnected" : (L.sharing===false ? "Stopped sharing" :
+      setText(el.querySelector(".noscreen"), !L.online ? "Disconnected" : (L.sharing===false ? "Stopped sharing" :
         MONITOR && !L.canMonitor ? (L.client==="helper" ? "Old Helper: download the latest to show here" : "Learner needs to refresh ClassView to show here") :
-        MONITOR && L.seenAt && Date.now() - L.seenAt > 15000 ? "Can't reach this laptop. Is this screen on the same wifi?" : "Connecting screen…");
-      el.querySelector(".name").textContent = L.name || "Learner";
+        MONITOR && L.seenAt && Date.now() - L.seenAt > 15000 ? "Can't reach this laptop. Is this screen on the same wifi?" : "Connecting screen…"));
+      setText(el.querySelector(".name"), L.name || "Learner");
       el.querySelector(".pill.stuck").hidden = !(L.stuck && L.online);
       el.querySelector(".pill.off").hidden = L.online;
       const k = el.querySelector(".pill.kind");
-      k.textContent = L.client==="helper" ? (L.canControl ? "Helper" : "Helper · no control") : "Browser";
+      setText(k, L.client==="helper" ? (L.canControl ? "Helper" : "Helper · no control") : "Browser");
       k.classList.toggle("helper", L.client==="helper" && L.canControl);
       el.classList.toggle("is-stuck", !!(L.stuck && L.online));
       el.classList.toggle("is-ctl", L.ctl==="active");
@@ -871,8 +876,13 @@ function startTrainer(MONITOR){
   function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function clearOver(){ document.querySelectorAll(".over").forEach(x => x.classList.remove("over")); }
 
+  let lastPlan = "";
   function placeTiles(list){
     const grid = $("tGrid");
+    const plan = JSON.stringify([seat.mode, seat.rows, seat.cols, !!seat.frontTop,
+      list.map(([id, L]) => [id, L.name || "", seat.mode === "auto" ? 0 : (seat.place[nk(L)] || null)])]);
+    if (plan === lastPlan && list.every(([id]) => grid.contains(tiles.get(id)))) return;
+    lastPlan = plan;
     grid.className = "grid mode-" + seat.mode;
     grid.style.setProperty("--cols", seat.cols);
     grid.replaceChildren();
@@ -982,6 +992,7 @@ function startTrainer(MONITOR){
     seat.place = {}; saveSeat(); render();
   };
   paintLayoutBar();
+  function setText(node, t){ if (node.textContent !== t) node.textContent = t; }
   function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
   // ----- focus view -----
