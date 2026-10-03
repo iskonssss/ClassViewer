@@ -179,6 +179,15 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
     <button class="role" id="pickTrainer"><span class="label">Trainer</span><h2>Start a class</h2><p>See every learner's screen in one grid and take control when someone is stuck.</p></button>
     <button class="role" id="pickLearner"><span class="label">Learner</span><h2>Join in the browser</h2><p>Share your screen with nothing to install. Your trainer can watch but not control.</p></button>
   </div>
+  <form class="dl" id="monForm" autocomplete="off">
+    <span class="label">Trainer's second screen</span>
+    <p style="margin:0">Watch the class from an iPad or second laptop. Get the class code and PIN from "Second screen" on the trainer's laptop.</p>
+    <div class="links">
+      <input type="text" id="mCode" class="mono" maxlength="6" placeholder="Class code" aria-label="Class code" style="width:9em;text-transform:uppercase;letter-spacing:.1em">
+      <input type="text" id="mKey" class="mono" maxlength="6" inputmode="numeric" placeholder="PIN" aria-label="Second screen PIN" style="width:7em">
+      <button class="btn" type="submit">Open second screen</button>
+    </div>
+  </form>
   <div class="dl">
     <span class="label">Recommended for learners</span>
     <p style="margin:0">Get the <b>ClassView Helper</b> app so your trainer can click into Fusion 360 and help you directly. It only works while you have it open, and you can stop your trainer at any time.</p>
@@ -238,6 +247,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
       <select id="tSize"><option value="80">Tiny</option><option value="120">Extra small</option><option value="160">Smaller</option><option value="200">Small</option><option value="260" selected>Medium</option><option value="360">Large</option></select>
       <label class="hint" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="tSound" checked> Sound on stuck</label>
       <button class="btn" id="tShowJoin">Show join code</button>
+      <button class="btn" id="tSecond">Second screen</button>
       <button class="btn" id="tCopyLink">Copy join link</button>
       <button class="btn" id="tNew">New class</button>
     </div>
@@ -256,6 +266,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
     </div>
   </header>
   <p class="err" id="tErr" hidden style="padding-top:12px"></p>
+  <div class="eyesnote" id="tMonNote" hidden style="background:var(--accent);color:var(--accent-ink)">Second screen · view only. Controls stay on the trainer's laptop.</div>
   <div class="eyesnote" id="tEyesNote" hidden>Learners' screens are covered. Click "Release screens" when you're done.</div>
   <section class="grid" id="tGrid"></section>
 </div>
@@ -277,6 +288,20 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
   <div class="stage" id="stage" tabindex="-1">
     <video id="oVideo" muted playsinline autoplay></video>
     <span class="ctlbadge" id="oBadge" hidden>Controlling</span>
+  </div>
+</div>
+
+<div id="second" class="join" hidden>
+  <div class="inner" style="max-width:34rem">
+    <span class="label" style="font-size:16px">Second screen (view only)</span>
+    <p style="margin:0">On your iPad or another laptop, open <b class="mono" id="sUrl"></b>, then enter:</p>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
+      <div style="display:grid;gap:4px"><span class="label">Class code</span><span class="code" id="sCode"></span></div>
+      <div style="display:grid;gap:4px"><span class="label">PIN</span><span class="code" id="sKey"></span></div>
+    </div>
+    <p class="hint" style="margin:0">Keep this PIN off the projector: it lets someone watch every screen. Learners send their screen to the second screen directly, so it works best on the same wifi.</p>
+    <p class="hint" style="margin:0" id="sCount"></p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center"><button class="btn" id="sCopy">Copy direct link</button><button class="btn" id="sNewKey">New PIN</button><button class="btn primary" id="sClose">Done</button></div>
   </div>
 </div>
 
@@ -340,11 +365,18 @@ function baseUrl(){ const u=new URL(location.href); return u.host + u.pathname.r
 function show(view){ for (const v of ["home","learner","trainer"]) $(v).hidden = v!==view; }
 
 // ---------------- ROUTING ----------------
-if (params.get("class")) startLearnerView(cleanCode(params.get("class")));
+if (params.has("monitor")) startTrainer(true);
+else if (params.get("class")) startLearnerView(cleanCode(params.get("class")));
 else if (params.has("trainer")) startTrainer();
 else show("home");
 $("pickTrainer").onclick = () => { history.replaceState(null,"","?trainer"+extraParams()); startTrainer(); };
 $("pickLearner").onclick = () => startLearnerView("");
+$("monForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const c = cleanCode($("mCode").value), k = ($("mKey").value||"").replace(/\D/g,"");
+  if (c.length < 4 || k.length < 4) return toast("Enter the class code and PIN from the trainer's laptop");
+  location.href = location.pathname + "?monitor&class=" + c + "&key=" + k + extraParams();
+});
 
 // ================= LEARNER (browser, view only) =================
 function startLearnerView(code){
@@ -382,6 +414,7 @@ function startLearnerView(code){
     peer.on("open", connect);
     peer.on("connection", c2 => c2.close());
     peer.on("error", ex => {
+      if (linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
       if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
       else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
       retry();
@@ -400,21 +433,48 @@ function startLearnerView(code){
     });
   }
   function retry(){ clearTimeout(retryT); if (!leaving) retryT = setTimeout(connect, 3000); }
+  function linkUp(){ return !!(conn && conn.open && Date.now() - lastHeard < 20000); }
   function connect(){
     if (leaving || !peer || peer.destroyed) return;
+    if (linkUp()) return;
     if (peer.disconnected) { try { peer.reconnect(); } catch {} return; }
     try { conn && conn.close(); } catch {}
     try { call && call.close(); } catch {}
     conn = peer.connect(trainerId, { reliable:true, metadata: info() });
     conn.on("open", () => { send({ type:"hello", ...info() }); startCall(); });
-    conn.on("data", onData);
+    lastHeard = Date.now();
+    conn.on("data", m => { lastHeard = Date.now(); onData(m); });
     conn.on("close", () => { setEyes(false); if (!leaving) { setStatus("wait","Trainer disconnected. Reconnecting…"); retry(); } });
     conn.on("error", () => retry());
   }
+  let lastHeard = 0;
+  setInterval(() => {
+    if (leaving || !conn) return;
+    if (conn.open && Date.now() - lastHeard > 20000) { try { conn.close(); } catch {} }
+  }, 5000);
+
+  // ----- second screens: send our screen to each of the trainer's view-only second screens too -----
+  const monCalls = new Map(); let monIds = [];
+  function syncMonitors(ids){
+    if (ids) monIds = ids.filter(x => typeof x === "string").slice(0, 4);
+    for (const [id, c] of monCalls) if (!monIds.includes(id)) { try { c.close(); } catch {} monCalls.delete(id); }
+    if (!stream || !stream.active || !peer || peer.destroyed) return;
+    for (const id of monIds) {
+      if (monCalls.has(id)) continue;
+      const c = peer.call(id, stream, { metadata: { name: $("lName").value.trim() } });
+      monCalls.set(id, c);
+      c.on("close", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
+      c.on("error", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
+      setTimeout(async () => { const pc = c.peerConnection; if (!pc) return; for (const snd of pc.getSenders()) { if (!snd.track || snd.track.kind !== "video") continue; try { const p = snd.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; p.encodings[0].maxBitrate = 300000; p.encodings[0].maxFramerate = 4; await snd.setParameters(p); } catch {} } }, 1000);
+    }
+  }
+  function resetMonitors(){ for (const c of monCalls.values()) { try { c.close(); } catch {} } monCalls.clear(); syncMonitors(); }
+  
   function startCall(){
     if (!stream || !stream.active) return;
     try { call && call.close(); } catch {}
     call = peer.call(trainerId, stream, { metadata: { name: $("lName").value.trim() } });
+    resetMonitors();
     call.on("error", ()=>{});
     setTimeout(applyQuality, 800);
     setStatus("live","Your screen is being shared with your trainer.");
@@ -429,6 +489,7 @@ function startLearnerView(code){
     if (m.type==="ping") send({ type:"pong" });
     if (m.type==="eyes") setEyes(!!m.on, m.text);
     if (m.type==="point" && typeof m.x==="number" && typeof m.y==="number") showPoint(m.x, m.y);
+    if (m.type==="monitors" && Array.isArray(m.ids)) syncMonitors(m.ids);
   }
   // ----- "Eyes on me" -----
   function setEyes(on, text){
@@ -546,10 +607,21 @@ function startLearnerView(code){
 }
 
 // ================= TRAINER =================
-function startTrainer(){
+function startTrainer(MONITOR){
   show("trainer");
-  let code = store.get("cv-trainer-code") || newCode();
-  store.set("cv-trainer-code", code);
+  let code = MONITOR ? cleanCode(params.get("class")) : (store.get("cv-trainer-code") || newCode());
+  if (!MONITOR) store.set("cv-trainer-code", code);
+  let monitorKey = store.get("cv-monitor-key") || String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+  if (!MONITOR) store.set("cv-monitor-key", monitorKey);
+  const monitors = new Map(); // trainer side: monitor peerId -> data connection
+  if (MONITOR) {
+    document.body.classList.add("monitor");
+    $("tMonNote").hidden = false;
+    for (const id of ["tEyes","tEyesMsg","tNew","tCopyLink","tSecond","tQuality","oCtl","oPoint","oHelped"]) $(id).hidden = true;
+    document.querySelector('label[for="tQuality"]').hidden = true;
+    document.querySelector(".layoutbar").hidden = true;
+    document.title = "ClassView second screen";
+  }
   const learners = new Map(); // peerId -> {name,stuck,stream,conn,call,online,client,canControl,os,ctl}
   let eyes = { on:false, text:"" };
   let peer, focusId = null, gridQ, audioCtx;
@@ -561,13 +633,15 @@ function startTrainer(){
 
   function open(){
     $("tCode").textContent = code;
+    if (MONITOR) return openMonitor();
     peer = new Peer(PREFIX + code + "-trainer", peerOptions());
     peer.on("open", () => { $("tErr").hidden = true; render(); });
     peer.on("connection", c => {
+      if (c.metadata && c.metadata.role === "monitor") return acceptMonitor(c);
       c.on("open", () => {
         const id = c.peer;
         const L = learners.get(id) || { stuck:false, joinedAt:Date.now() };
-        Object.assign(L, c.metadata || {}, { conn:c, online:true, ctl:"idle" });
+        Object.assign(L, c.metadata || {}, { conn:c, online:true, ctl:"idle", lastSeen:Date.now() });
         learners.set(id, L);
         if (eyes.on) { try { c.send({ type:"eyes", on:true, text:eyes.text }); } catch {} }
         render();
@@ -596,10 +670,105 @@ function startTrainer(){
   }
   function showErr(m){ $("tErr").textContent = m; $("tErr").hidden = false; }
 
+  // ----- second screen: trainer side -----
+  function acceptMonitor(c){
+    c.on("open", () => {
+      if (String((c.metadata||{}).key) !== monitorKey) { try { c.send({ type:"denied" }); } catch {} setTimeout(() => { try { c.close(); } catch {} }, 1500); return; }
+      monitors.set(c.peer, c);
+      sendRoster(true);
+      broadcastMonitors();
+      toast("Second screen connected");
+      paintSecond();
+    });
+    c.on("data", m => { if (m && m.type === "ping") { try { c.send({ type:"pong" }); } catch {} } });
+    c.on("close", () => { if (monitors.get(c.peer) === c) { monitors.delete(c.peer); broadcastMonitors(); paintSecond(); } });
+  }
+  function broadcastMonitors(){ const ids = [...monitors.keys()]; for (const id of learners.keys()) send(id, { type:"monitors", ids }); }
+  let rosterT = null;
+  function sendRoster(now){
+    if (MONITOR || !monitors.size) return;
+    clearTimeout(rosterT);
+    rosterT = setTimeout(() => {
+      const msg = { type:"roster", seat: { mode:seat.mode, rows:seat.rows, cols:seat.cols, frontTop:seat.frontTop, place:seat.place }, eyes: eyes.on,
+        learners: [...learners].map(([id,L]) => ({ id, name:L.name||"Learner", stuck:!!L.stuck, stuckAt:L.stuckAt||null, online:!!L.online, client:L.client, canControl:!!L.canControl, sharing:L.sharing!==false, ctl:L.ctl })) };
+      for (const c of monitors.values()) { try { if (c.open) c.send(msg); } catch {} }
+    }, now ? 0 : 250);
+  }
+  function monitorUrl(){ const u=new URL(location.href); u.hash=""; u.search="?monitor&class="+code+"&key="+monitorKey+extraParams(); return u.toString(); }
+  function paintSecond(){ if ($("second").hidden) return; $("sUrl").textContent = baseUrl(); $("sCode").textContent = code; $("sKey").textContent = monitorKey; $("sCount").textContent = monitors.size ? monitors.size + " second screen" + (monitors.size>1?"s":"") + " connected." : "No second screen connected yet."; }
+  $("tSecond").onclick = () => { $("second").hidden = false; paintSecond(); };
+  $("sClose").onclick = () => $("second").hidden = true;
+  $("sCopy").onclick = () => copy(monitorUrl());
+  $("sNewKey").onclick = () => {
+    monitorKey = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000)); store.set("cv-monitor-key", monitorKey);
+    for (const c of monitors.values()) { try { c.close(); } catch {} }
+    monitors.clear(); broadcastMonitors(); paintSecond(); toast("New PIN. Second screens need to re-enter it.");
+  };
+
+  // ----- second screen: monitor side -----
+  let tconn = null, monRetry = null, monHeard = 0, monDenied = false, monOpenedAt = 0;
+  function openMonitor(){
+    const trainerId = PREFIX + code + "-trainer";
+    peer = new Peer(undefined, peerOptions());
+    const connectT = () => {
+      clearTimeout(monRetry);
+      if (tconn && tconn.open && Date.now() - monHeard < 20000) return;
+      try { tconn && tconn.close(); } catch {}
+      tconn = peer.connect(trainerId, { reliable:true, metadata:{ role:"monitor", key: (params.get("key")||"").replace(/\D/g,"") } });
+      tconn.on("open", () => { monHeard = monOpenedAt = Date.now(); if (!monDenied) $("tErr").hidden = true; });
+      tconn.on("data", m => {
+        monHeard = Date.now();
+        if (!m) return;
+        if (m.type === "denied") { monDenied = true; showErr("Wrong PIN. Open \"Second screen\" on the trainer's laptop to see the current PIN, then go back and enter it."); try { tconn.close(); } catch {} return; }
+        if (m.type === "roster") applyRoster(m);
+      });
+      tconn.on("close", () => {
+        if (monDenied) return;
+        if (monOpenedAt && Date.now() - monOpenedAt < 3000) { showErr("The trainer's laptop refused this second screen. Check the PIN. Retrying…"); monRetry = setTimeout(connectT, 10000); return; }
+        showErr("Lost the trainer's laptop. Reconnecting…"); monRetry = setTimeout(connectT, 3000);
+      });
+      tconn.on("error", () => { monRetry = setTimeout(connectT, 3000); });
+    };
+    peer.on("open", connectT);
+    peer.on("connection", c => c.close());
+    peer.on("call", call => {
+      call.answer();
+      call.on("stream", s => {
+        const L = learners.get(call.peer) || { stuck:false, name:(call.metadata||{}).name||"Learner", online:true, ctl:"idle" };
+        if (L.call && L.call !== call) { try { L.call.close(); } catch {} }
+        L.call = call; L.stream = s; learners.set(call.peer, L); render();
+      });
+      call.on("close", () => { const L = learners.get(call.peer); if (L && L.call === call) { L.stream = null; render(); } });
+    });
+    peer.on("error", ex => {
+      if (tconn && tconn.open) return;
+      if (ex.type === "peer-unavailable") showErr("The trainer hasn't started this class yet, or the class code is wrong. Retrying…");
+      else showErr("Connection problem (" + ex.type + "). Retrying…");
+      clearTimeout(monRetry); monRetry = setTimeout(connectT, 3000);
+    });
+    peer.on("disconnected", () => setTimeout(() => { try { if (!peer.destroyed) peer.reconnect(); } catch {} }, 2000));
+    setInterval(() => {
+      if (tconn && tconn.open) { try { tconn.send({ type:"ping" }); } catch {} if (Date.now() - monHeard > 20000) { try { tconn.close(); } catch {} } }
+    }, 5000);
+  }
+  function applyRoster(m){
+    const seen = new Set();
+    for (const r of m.learners || []) {
+      seen.add(r.id);
+      const L = learners.get(r.id) || {};
+      Object.assign(L, { name:r.name, stuck:r.stuck, stuckAt:r.stuckAt, online:r.online, client:r.client, canControl:r.canControl, sharing:r.sharing, ctl:r.ctl });
+      learners.set(r.id, L);
+    }
+    for (const [id, L] of learners) if (!seen.has(id)) { try { L.call && L.call.close(); } catch {} learners.delete(id); }
+    if (m.seat) { seat = Object.assign(seat, m.seat); }
+    render();
+  }
+
   function onData(id, m){
     const L = learners.get(id); if (!L || !m) return;
+    L.lastSeen = Date.now();
     switch (m.type) {
-      case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy }); break;
+      case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy }); send(id, { type:"monitors", ids:[...monitors.keys()] }); break;
       case "caps": Object.assign(L, { canControl:!!m.canControl, ctlWhy:m.ctlWhy }); break;
       case "stuck": { const was=L.stuck; L.stuck=!!m.value; L.stuckAt = L.stuck ? Date.now() : null; if (L.stuck && !was) beep(); break; }
       case "sharing": L.sharing=!!m.value; if(!m.value) L.stream=null; break;
@@ -640,6 +809,7 @@ function startTrainer(){
       grid.innerHTML = `<div class="empty"><span class="label">Waiting for learners</span><span class="code">${code}</span><span>Learners open the ClassView Helper (or <b class="mono">${esc(baseUrl())}</b>) and enter this code.</span><button class="btn primary" id="emptyJoin">Show on projector</button></div>`;
       $("emptyJoin").onclick = showJoin;
       tiles.clear();
+      sendRoster();
       return;
     }
     const emptyEl = grid.querySelector(".empty"); if (emptyEl) emptyEl.remove();
@@ -671,10 +841,11 @@ function startTrainer(){
       el.classList.toggle("is-ctl", L.ctl==="active");
       el.classList.toggle("is-off", !L.online);
       el.setAttribute("aria-label", (L.name||"Learner") + (L.stuck ? ", stuck" : "") + ". Open full screen");
-      el.draggable = seat.mode !== "auto";
+      el.draggable = !MONITOR && seat.mode !== "auto";
     }
     placeTiles(list);
     if (focusId) fillFocus();
+    sendRoster();
   }
 
   // ----- seating layout: rows or a rows × columns seat plan, remembered by learner name -----
@@ -683,7 +854,7 @@ function startTrainer(){
   try { Object.assign(seat, JSON.parse(store.get("cv-seating") || "{}")); } catch {}
   delete seat.flip;
   if (!seat.place || typeof seat.place !== "object") seat.place = {};
-  function saveSeat(){ store.set("cv-seating", JSON.stringify(seat)); }
+  function saveSeat(){ if (!MONITOR) store.set("cv-seating", JSON.stringify(seat)); sendRoster(); }
   const nk = L => (L && L.name || "").trim().toLowerCase();
   function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function clearOver(){ document.querySelectorAll(".over").forEach(x => x.classList.remove("over")); }
@@ -971,7 +1142,15 @@ function startTrainer(){
   };
   window.addEventListener("beforeunload", () => { for (const id of learners.keys()) { releaseControl(id); if (eyes.on) send(id, { type:"eyes", on:false }); } });
 
-  setInterval(() => { for (const [id,L] of learners) if (L.conn && L.conn.open) send(id,{type:"ping"}); else if (L.online) { L.online=false; render(); } }, 5000);
+  setInterval(() => {
+    for (const [id,L] of learners) {
+      if (L.conn && L.conn.open) {
+        // a link that has gone silent for 20s is dead even if the browser hasn't noticed yet
+        if (L.lastSeen && Date.now() - L.lastSeen > 20000) { try { L.conn.close(); } catch {} continue; }
+        send(id,{type:"ping"});
+      } else if (L.online) { L.online=false; render(); }
+    }
+  }, 5000);
 
   open();
 }

@@ -137,6 +137,7 @@ const store = { get(k){ try{ return localStorage.getItem(k); }catch{ return null
 function view(v){ for (const id of ["setup","joinForm","live"]) $(id).hidden = id!==v; }
 
 // ---------- state ----------
+let lastHeard = 0;
 let peer, conn, call, stream, stuck=false, quality="med", retryT, leaving=false, trainerId;
 let ctlState = "idle", trainerPlatform = "win";
 
@@ -199,6 +200,7 @@ async function join(){
   peer.on("open", connect);
   peer.on("connection", c => c.close()); // only we connect out; nobody can connect in
   peer.on("error", ex => {
+    if (linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
     if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
     else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
     retry();
@@ -212,21 +214,47 @@ function prepStream(){
   tr.addEventListener("ended", () => setStatus("off","Screen sharing stopped. Leave and join again to share."));
 }
 function retry(){ clearTimeout(retryT); if (!leaving) retryT = setTimeout(connect, 3000); }
+function linkUp(){ return !!(conn && conn.open && Date.now() - lastHeard < 20000); }
 function connect(){
   if (leaving || !peer || peer.destroyed) return;
+  if (linkUp()) return;
   if (peer.disconnected) { try{ peer.reconnect(); }catch{} return; }
   try { conn && conn.close(); } catch {}
   try { call && call.close(); } catch {}
   conn = peer.connect(trainerId, { reliable:true, metadata: info() });
   conn.on("open", () => { send(Object.assign({ type:"hello" }, info())); startCall(); });
-  conn.on("data", onData);
+  lastHeard = Date.now();
+  conn.on("data", m => { lastHeard = Date.now(); onData(m); });
   conn.on("close", () => { endControl(false); H.eyes(false); if (!leaving) { setStatus("wait","Trainer disconnected. Reconnecting…"); retry(); } });
   conn.on("error", () => retry());
 }
+setInterval(() => {
+  if (leaving || !conn) return;
+  if (conn.open && Date.now() - lastHeard > 20000) { try { conn.close(); } catch {} }
+}, 5000);
+
+// ----- second screens: send our screen to each of the trainer's view-only second screens too -----
+const monCalls = new Map(); let monIds = [];
+function syncMonitors(ids){
+  if (ids) monIds = ids.filter(x => typeof x === "string").slice(0, 4);
+  for (const [id, c] of monCalls) if (!monIds.includes(id)) { try { c.close(); } catch {} monCalls.delete(id); }
+  if (!stream || !stream.active || !peer || peer.destroyed) return;
+  for (const id of monIds) {
+    if (monCalls.has(id)) continue;
+    const c = peer.call(id, stream, { metadata: { name: $("jName").value.trim() } });
+    monCalls.set(id, c);
+    c.on("close", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
+    c.on("error", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
+    setTimeout(async () => { const pc = c.peerConnection; if (!pc) return; for (const snd of pc.getSenders()) { if (!snd.track || snd.track.kind !== "video") continue; try { const p = snd.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; p.encodings[0].maxBitrate = 300000; p.encodings[0].maxFramerate = 4; await snd.setParameters(p); } catch {} } }, 1000);
+  }
+}
+function resetMonitors(){ for (const c of monCalls.values()) { try { c.close(); } catch {} } monCalls.clear(); syncMonitors(); }
+
 function startCall(){
   if (!stream || !stream.active) return;
   try { call && call.close(); } catch {}
   call = peer.call(trainerId, stream, { metadata:{ name: $("jName").value.trim() } });
+  resetMonitors();
   call.on("error", ()=>{});
   setTimeout(applyQuality, 800);
   setStatus("live", "Your screen is being shared with your trainer.");
@@ -251,6 +279,7 @@ function onData(m){
     case "control-release": endControl(false); break;
     case "eyes": H.eyes(!!m.on, m.text || ""); break;
     case "point": if (typeof m.x === "number" && typeof m.y === "number") H.point(m.x, m.y); break;
+    case "monitors": if (Array.isArray(m.ids)) syncMonitors(m.ids); break;
   }
 }
 async function grant(){
