@@ -114,7 +114,9 @@ ipcMain.handle("attention", (_e, text) => {
 
 // ---------- control session ----------
 ipcMain.handle("control-start", (_e, platform) => {
+  releaseAll();
   controlling = true;
+  lastInputAt = Date.now();
   trainerPlatform = platform === "mac" ? "mac" : "win";
   const b = createBar();
   const show = () => { if (bar) bar.showInactive(); };
@@ -252,8 +254,16 @@ function releaseAll() {
   mods.clear();
 }
 
+// Safety net: if the trainer's connection hiccups and a "release" message is lost, never leave a
+// mouse button or key held down on the learner's laptop for more than a few seconds of silence.
+let lastInputAt = 0;
+setInterval(() => {
+  if ((buttons.size || mods.size || keysDown.size) && Date.now() - lastInputAt > 6000) releaseAll();
+}, 1000);
+
 ipcMain.on("input", (_e, m) => {
   if (!controlling || !robot || !m || typeof m !== "object") return;
+  lastInputAt = Date.now();
   try {
     switch (m.e) {
       case "mm": {
@@ -296,7 +306,7 @@ ipcMain.on("input", (_e, m) => {
         }
         const k = keyName(String(m.code || ""));
         if (!k) return;
-        robot.keyToggle(k, dir, [...mods]);
+        if (IS_MAC) robot.keyToggle(k, dir, [...mods]); else robot.keyToggle(k, dir);
         if (dir === "down") keysDown.add(k); else keysDown.delete(k);
         break;
       }

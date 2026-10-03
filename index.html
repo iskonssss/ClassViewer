@@ -867,7 +867,7 @@ function startTrainer(){
   // ----- remote input capture -----
   const stage = $("stage"), vid = $("oVideo");
   let capturing = false, pendingMove = null, raf = 0, wheelAcc = 0, pointMode = false;
-  function startCapture(){ capturing = true; stage.tabIndex = 0; stage.focus(); fillFocus(); }
+  function startCapture(){ capturing = true; stage.tabIndex = 0; stage.focus(); out({ e:"allup" }); fillFocus(); }
   function stopCapture(){ capturing = false; stage.tabIndex = -1; pendingMove = null; }
   $("oPoint").onclick = () => { pointMode = !pointMode; fillFocus(); };
   function localRing(e){
@@ -927,6 +927,7 @@ function startTrainer(){
   });
   stage.addEventListener("blur", () => { if (capturing) out({ e:"allup" }); });
   window.addEventListener("blur", () => { if (capturing) out({ e:"allup" }); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && capturing) out({ e:"allup" }); });
 
   document.addEventListener("keydown", e => {
     if (e.target === stage && capturing) return;
