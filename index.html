@@ -484,7 +484,7 @@ function startLearnerView(code){
     setTimeout(applyQuality, 800);
     setStatus("live","Your screen is being shared with your trainer.");
   }
-  function info(){ return { name: $("lName").value.trim(), stuck, sharing: !!(stream && stream.active), client:"browser", canControl:false }; }
+  function info(){ return { name: $("lName").value.trim(), stuck, sharing: !!(stream && stream.active), client:"browser", canControl:false, mon:1 }; }
   function send(m){ try { if (conn && conn.open) conn.send(m); } catch {} }
   function onData(m){
     if (!m || typeof m!=="object") return;
@@ -674,6 +674,7 @@ function startTrainer(MONITOR){
     peer.on("disconnected", () => setTimeout(()=>{ try{ if(!peer.destroyed) peer.reconnect(); }catch{} }, 2000));
   }
   function showErr(m){ $("tErr").textContent = m; $("tErr").hidden = false; }
+  function verGte(v, min){ const a=String(v||"0").split(".").map(Number), b=min.split(".").map(Number); for (let i=0;i<3;i++){ if((a[i]||0)>(b[i]||0)) return true; if((a[i]||0)<(b[i]||0)) return false; } return true; }
 
   // ----- second screen: trainer side -----
   function acceptMonitor(c){
@@ -695,7 +696,7 @@ function startTrainer(MONITOR){
     clearTimeout(rosterT);
     rosterT = setTimeout(() => {
       const msg = { type:"roster", seat: { mode:seat.mode, rows:seat.rows, cols:seat.cols, frontTop:seat.frontTop, place:seat.place }, eyes: eyes.on,
-        learners: [...learners].map(([id,L]) => ({ id, name:L.name||"Learner", stuck:!!L.stuck, stuckAt:L.stuckAt||null, online:!!L.online, client:L.client, canControl:!!L.canControl, sharing:L.sharing!==false, ctl:L.ctl })) };
+        learners: [...learners].map(([id,L]) => ({ id, name:L.name||"Learner", stuck:!!L.stuck, stuckAt:L.stuckAt||null, online:!!L.online, client:L.client, canControl:!!L.canControl, sharing:L.sharing!==false, ctl:L.ctl, canMonitor:!!L.canMonitor })) };
       for (const c of monitors.values()) { try { if (c.open) c.send(msg); } catch {} }
     }, now ? 0 : 250);
   }
@@ -755,6 +756,7 @@ function startTrainer(MONITOR){
     peer.on("disconnected", () => setTimeout(() => { try { if (!peer.destroyed) peer.reconnect(); } catch {} }, 2000));
     setInterval(() => {
       if (tconn && tconn.open) { try { tconn.send({ type:"ping" }); } catch {} if (Date.now() - monHeard > 20000) { try { tconn.close(); } catch {} } }
+      render();
     }, 5000);
   }
   function applyRoster(m){
@@ -762,7 +764,8 @@ function startTrainer(MONITOR){
     for (const r of m.learners || []) {
       seen.add(r.id);
       const L = learners.get(r.id) || {};
-      Object.assign(L, { name:r.name, stuck:r.stuck, stuckAt:r.stuckAt, online:r.online, client:r.client, canControl:r.canControl, sharing:r.sharing, ctl:r.ctl });
+      if (!L.seenAt) L.seenAt = Date.now();
+      Object.assign(L, { name:r.name, stuck:r.stuck, stuckAt:r.stuckAt, online:r.online, client:r.client, canControl:r.canControl, sharing:r.sharing, ctl:r.ctl, canMonitor:r.canMonitor });
       learners.set(r.id, L);
     }
     for (const [id, L] of learners) if (!seen.has(id)) { try { L.call && L.call.close(); } catch {} learners.delete(id); }
@@ -774,7 +777,8 @@ function startTrainer(MONITOR){
     const L = learners.get(id); if (!L || !m) return;
     L.lastSeen = Date.now();
     switch (m.type) {
-      case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy }); send(id, { type:"monitors", ids:[...monitors.keys()] }); break;
+      case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy, version:m.version,
+        canMonitor: !!m.mon || (m.client==="helper" && verGte(m.version, "0.1.3")) }); send(id, { type:"monitors", ids:[...monitors.keys()] }); break;
       case "caps": Object.assign(L, { canControl:!!m.canControl, ctlWhy:m.ctlWhy }); break;
       case "stuck": { const was=L.stuck; L.stuck=!!m.value; L.stuckAt = L.stuck ? Date.now() : null; if (L.stuck && !was) beep(); break; }
       case "sharing": L.sharing=!!m.value; if(!m.value) L.stream=null; break;
@@ -836,7 +840,9 @@ function startTrainer(MONITOR){
       const want = L.stream && L.online ? L.stream : null;
       if (v.srcObject !== want) { v.srcObject = want; if (want) v.play().catch(()=>{}); }
       el.querySelector(".noscreen").hidden = !!want;
-      el.querySelector(".noscreen").textContent = !L.online ? "Disconnected" : (L.sharing===false ? "Stopped sharing" : "Connecting screen…");
+      el.querySelector(".noscreen").textContent = !L.online ? "Disconnected" : (L.sharing===false ? "Stopped sharing" :
+        MONITOR && !L.canMonitor ? (L.client==="helper" ? "Old Helper: download the latest to show here" : "Learner needs to refresh ClassView to show here") :
+        MONITOR && L.seenAt && Date.now() - L.seenAt > 15000 ? "Can't reach this laptop. Is this screen on the same wifi?" : "Connecting screen…");
       el.querySelector(".name").textContent = L.name || "Learner";
       el.querySelector(".pill.stuck").hidden = !(L.stuck && L.online);
       el.querySelector(".pill.off").hidden = L.online;
@@ -1149,6 +1155,7 @@ function startTrainer(MONITOR){
   window.addEventListener("beforeunload", () => { for (const id of learners.keys()) { releaseControl(id); if (eyes.on) send(id, { type:"eyes", on:false }); } });
 
   setInterval(() => {
+    if (MONITOR) return; // the second screen learns who's online from the trainer's roster
     for (const [id,L] of learners) {
       if (L.conn && L.conn.open) {
         // a link that has gone silent for 20s is dead even if the browser hasn't noticed yet
