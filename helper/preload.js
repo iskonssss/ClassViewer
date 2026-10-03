@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("helper", {
   askAccessibility: () => ipcRenderer.invoke("ask-accessibility"),
   openSettings: which => ipcRenderer.invoke("open-settings", which),
   relaunch: () => ipcRenderer.invoke("relaunch"),
+  minimize: () => ipcRenderer.invoke("minimize"),
   attention: text => ipcRenderer.invoke("attention", text),
   controlStart: platform => ipcRenderer.invoke("control-start", platform),
   controlEnd: () => ipcRenderer.invoke("control-end"),

@@ -98,6 +98,7 @@ details.opts[open]{gap:8px}
     <div class="field"><label class="label" for="jCode">Class code</label><input type="text" id="jCode" class="mono" maxlength="6" placeholder="On the projector, e.g. K7P2Q" required style="text-transform:uppercase;letter-spacing:.12em"></div>
     <div class="field"><label class="label" for="jName">Your name</label><input type="text" id="jName" maxlength="40" placeholder="e.g. Aisyah" required></div>
     <button class="btn primary" type="submit" id="jGo">Join and share my screen</button>
+    <p class="hint">After you join, this window tucks itself away in the taskbar. Click the ClassView icon there whenever you need the <b>I'm stuck</b> button.</p>
     <p class="err" id="jErr" hidden></p>
     <details class="opts">
       <summary>Start-up options for this laptop</summary>
@@ -215,6 +216,8 @@ async function join(){
   prepStream();
   $("lPreview").srcObject = stream;
   view("live");
+  // Get out of the way as soon as sharing starts; the learner can reopen it from the taskbar.
+  setTimeout(() => H.minimize(), 600);
   setStatus("wait", "Connecting to your trainer…");
   paintCtl();
   peer = new Peer(undefined, Object.assign({ debug:1 }, env.peer || {}));

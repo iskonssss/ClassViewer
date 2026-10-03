@@ -118,6 +118,7 @@ ipcMain.handle("open-settings", (_e, which) => {
   shell.openExternal("x-apple.systempreferences:com.apple.preference.security?" + pane);
 });
 ipcMain.handle("relaunch", () => { app.relaunch(); app.exit(0); });
+ipcMain.handle("minimize", () => { if (win && !win.isMinimized()) win.minimize(); });
 ipcMain.handle("attention", (_e, text) => {
   if (!win) return;
   if (win.isMinimized()) win.restore();
