@@ -416,7 +416,7 @@ function startLearnerView(code){
     history.replaceState(null,"","?class="+c+extraParams());
     setStatus("wait","Connecting to your trainer…");
     peer = new Peer(undefined, peerOptions());
-    peer.on("open", connect);
+    peer.on("open", () => { connect(); setTimeout(() => syncMonitors(), 800); });
     peer.on("connection", c2 => c2.close());
     peer.on("error", ex => {
       if (linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
@@ -460,7 +460,16 @@ function startLearnerView(code){
 
   // ----- second screens: send our screen to each of the trainer's view-only second screens too -----
   const monCalls = new Map(); let monIds = [];
-  function syncMonitors(ids){
+  const monTries = {}; let rejoining = false;
+  function rejoinServer(){
+    if (rejoining || !peer || peer.destroyed) return;
+    rejoining = true;
+    try { peer.disconnect(); } catch {}
+    setTimeout(() => { rejoining = false; try { if (!peer.destroyed) peer.reconnect(); } catch {} }, 1000);
+  }
+  function syncMonitors(ids, reset){
+    if (ids) for (const id of ids) if (!monIds.includes(id)) monTries[id] = 0;
+    for (const id of (reset||[])) { const c = monCalls.get(id); if (c) { try { c.close(); } catch {} monCalls.delete(id); } }
     if (ids) monIds = ids.filter(x => typeof x === "string").slice(0, 4);
     for (const [id, c] of monCalls) if (!monIds.includes(id)) { try { c.close(); } catch {} monCalls.delete(id); }
     if (!stream || !stream.active || !peer || peer.destroyed) return;
@@ -470,6 +479,14 @@ function startLearnerView(code){
       monCalls.set(id, c);
       c.on("close", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
       c.on("error", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
+      // If the call never connects, our own link to the class server has probably gone stale: rejoin it and retry (max 3 tries).
+      setTimeout(() => {
+        const pc = c.peerConnection;
+        if (monCalls.get(id) !== c || (pc && pc.connectionState === "connected")) { monTries[id] = 0; return; }
+        monCalls.delete(id); try { c.close(); } catch {}
+        monTries[id] = (monTries[id] || 0) + 1;
+        if (monTries[id] <= 3) rejoinServer();
+      }, 12000);
       setTimeout(async () => { const pc = c.peerConnection; if (!pc) return; for (const snd of pc.getSenders()) { if (!snd.track || snd.track.kind !== "video") continue; try { const p = snd.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; p.encodings[0].maxBitrate = 300000; p.encodings[0].maxFramerate = 4; await snd.setParameters(p); } catch {} } }, 1000);
     }
   }
@@ -494,7 +511,7 @@ function startLearnerView(code){
     if (m.type==="ping") send({ type:"pong" });
     if (m.type==="eyes") setEyes(!!m.on, m.text);
     if (m.type==="point" && typeof m.x==="number" && typeof m.y==="number") showPoint(m.x, m.y);
-    if (m.type==="monitors" && Array.isArray(m.ids)) syncMonitors(m.ids);
+    if (m.type==="monitors" && Array.isArray(m.ids)) syncMonitors(m.ids, m.reset);
   }
   // ----- "Eyes on me" -----
   function setEyes(on, text){
@@ -640,8 +657,9 @@ function startTrainer(MONITOR){
     $("tCode").textContent = code;
     if (MONITOR) return openMonitor();
     peer = new Peer(PREFIX + code + "-trainer", peerOptions());
-    peer.on("open", () => { $("tErr").hidden = true; render(); });
+    peer.on("open", () => { everOpen = true; $("tErr").hidden = true; render(); });
     peer.on("connection", c => {
+      if (c.metadata && c.metadata.role === "probe") { c.on("open", () => { try { c.close(); } catch {} }); return; }
       if (c.metadata && c.metadata.role === "monitor") return acceptMonitor(c);
       c.on("open", () => {
         const id = c.peer;
@@ -667,13 +685,47 @@ function startTrainer(MONITOR){
       call.on("close", () => { const L = learners.get(call.peer); if (L && L.call===call) { L.stream=null; render(); } });
     });
     peer.on("error", ex => {
-      if (ex.type==="unavailable-id") showErr("This class code is already open in another tab or on another laptop. Close it there, or click New class.");
+      if (ex.type==="unavailable-id") {
+        // After a blip the server can still hold our old session for up to a minute; keep re-trying quietly.
+        if (everOpen) { showErr("Reconnecting to the class server… Learners already connected are not affected."); setTimeout(()=>{ try{ if(!peer.destroyed) peer.reconnect(); }catch{} }, 5000); }
+        else showErr("This class code is already open in another tab or on another laptop. Close it there, or click New class.");
+      }
       else if (["network","server-error","socket-error","socket-closed"].includes(ex.type)) { showErr("Lost connection to the class server. Retrying…"); setTimeout(()=>{ try{ peer.reconnect(); }catch{} }, 3000); }
       else if (ex.type!=="peer-unavailable") showErr("Connection problem: " + ex.type);
     });
     peer.on("disconnected", () => setTimeout(()=>{ try{ if(!peer.destroyed) peer.reconnect(); }catch{} }, 2000));
   }
   function showErr(m){ $("tErr").textContent = m; $("tErr").hidden = false; }
+  let everOpen = false;
+  // Safety net: if we've dropped off the class server, keep trying to get back on it.
+  setInterval(() => { if (!MONITOR && peer && !peer.destroyed && peer.disconnected) { try { peer.reconnect(); } catch {} } }, 10000);
+  // Our link to the class server can go "zombie" after a wifi blip or laptop sleep: it looks open to us,
+  // but the server has forgotten us, so new learners and second screens can't find this class.
+  // Every 20s a tiny probe asks the server for us; if the server says we're not there, re-register.
+  let probe = null, probeBusy = false;
+  function reRegister(){
+    showErr("Reconnecting to the class server… Learners already connected are not affected.");
+    try { peer.disconnect(); } catch {}
+    setTimeout(() => { try { if (!peer.destroyed) peer.reconnect(); } catch {} }, 1000);
+  }
+  function selfCheck(){
+    if (MONITOR || !everOpen || !peer || peer.destroyed || peer.disconnected || probeBusy) return;
+    probeBusy = true;
+    const done = () => { probeBusy = false; };
+    const go = () => {
+      const c = probe.connect(PREFIX + code + "-trainer", { metadata:{ role:"probe" } });
+      const t = setTimeout(() => { try { c.close(); } catch {} done(); }, 8000);
+      c.on("open", () => { clearTimeout(t); try { c.close(); } catch {} done(); });
+    };
+    if (!probe || probe.destroyed || probe.disconnected) {
+      try { probe && probe.destroy(); } catch {}
+      probe = new Peer(undefined, peerOptions());
+      probe.on("error", ex => { if (ex.type === "peer-unavailable") reRegister(); else { try { probe.destroy(); } catch {} } done(); });
+      probe.on("open", go);
+      setTimeout(done, 10000);
+    } else go();
+  }
+  setInterval(selfCheck, 20000);
   function verGte(v, min){ const a=String(v||"0").split(".").map(Number), b=min.split(".").map(Number); for (let i=0;i<3;i++){ if((a[i]||0)>(b[i]||0)) return true; if((a[i]||0)<(b[i]||0)) return false; } return true; }
 
   // ----- second screen: trainer side -----
@@ -682,14 +734,14 @@ function startTrainer(MONITOR){
       if (String((c.metadata||{}).key) !== monitorKey) { try { c.send({ type:"denied" }); } catch {} setTimeout(() => { try { c.close(); } catch {} }, 1500); return; }
       monitors.set(c.peer, c);
       sendRoster(true);
-      broadcastMonitors();
+      broadcastMonitors(c.peer);
       toast("Second screen connected");
       paintSecond();
     });
     c.on("data", m => { if (m && m.type === "ping") { try { c.send({ type:"pong" }); } catch {} } });
     c.on("close", () => { if (monitors.get(c.peer) === c) { monitors.delete(c.peer); broadcastMonitors(); paintSecond(); } });
   }
-  function broadcastMonitors(){ const ids = [...monitors.keys()]; for (const id of learners.keys()) send(id, { type:"monitors", ids }); }
+  function broadcastMonitors(reset){ const ids = [...monitors.keys()]; for (const id of learners.keys()) send(id, { type:"monitors", ids, reset: reset ? [reset] : [] }); }
   let rosterT = null;
   function sendRoster(now){
     if (MONITOR || !monitors.size) return;
@@ -713,7 +765,8 @@ function startTrainer(MONITOR){
   };
 
   // ----- second screen: monitor side -----
-  let tconn = null, monRetry = null, monHeard = 0, monDenied = false, monOpenedAt = 0;
+  let tconn = null, monRetry = null, monHeard = 0, monDenied = false, monOpenedAt = 0, monEverLinked = false;
+  const monLinked = () => !!(tconn && tconn.open);
   function openMonitor(){
     const trainerId = PREFIX + code + "-trainer";
     peer = new Peer(undefined, peerOptions());
@@ -722,7 +775,7 @@ function startTrainer(MONITOR){
       if (tconn && tconn.open && Date.now() - monHeard < 20000) return;
       try { tconn && tconn.close(); } catch {}
       tconn = peer.connect(trainerId, { reliable:true, metadata:{ role:"monitor", key: (params.get("key")||"").replace(/\D/g,"") } });
-      tconn.on("open", () => { monHeard = monOpenedAt = Date.now(); if (!monDenied) $("tErr").hidden = true; });
+      tconn.on("open", () => { monHeard = monOpenedAt = Date.now(); monEverLinked = true; if (!monDenied) $("tErr").hidden = true; render(); });
       tconn.on("data", m => {
         monHeard = Date.now();
         if (!m) return;
@@ -749,7 +802,7 @@ function startTrainer(MONITOR){
     });
     peer.on("error", ex => {
       if (tconn && tconn.open) return;
-      if (ex.type === "peer-unavailable") showErr("The trainer hasn't started this class yet, or the class code is wrong. Retrying…");
+      if (ex.type === "peer-unavailable") showErr(monEverLinked ? "Can't reach the trainer's laptop right now. Is ClassView still open on it? Retrying…" : "The trainer hasn't started this class yet, or the class code is wrong. Retrying…");
       else showErr("Connection problem (" + ex.type + "). Retrying…");
       clearTimeout(monRetry); monRetry = setTimeout(connectT, 3000);
     });
@@ -846,7 +899,8 @@ function startTrainer(MONITOR){
       if (v.srcObject !== want) { v.srcObject = want; if (want) v.play().catch(()=>{}); }
       el.querySelector(".noscreen").hidden = !!want;
       setText(el.querySelector(".noscreen"), !L.online ? "Disconnected" : (L.sharing===false ? "Stopped sharing" :
-        MONITOR && !L.canMonitor ? (L.client==="helper" ? "Old Helper: download the latest to show here" : "Learner needs to refresh ClassView to show here") :
+        MONITOR && !monLinked() ? "Waiting for the trainer's laptop…" :
+        MONITOR && !L.canMonitor && L.seenAt && Date.now() - L.seenAt > 10000 ? (L.client==="helper" ? "Not showing here yet. Ask the learner to update the Helper." : "Not showing here yet. Ask the learner to refresh ClassView.") :
         MONITOR && L.seenAt && Date.now() - L.seenAt > 15000 ? "Can't reach this laptop. Is this screen on the same wifi?" : "Connecting screen…"));
       setText(el.querySelector(".name"), L.name || "Learner");
       el.querySelector(".pill.stuck").hidden = !(L.stuck && L.online);

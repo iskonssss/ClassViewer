@@ -1,7 +1,7 @@
 {
   "name": "classview-helper",
   "productName": "ClassView Helper",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Lets your Forgecraft trainer see your screen and help you in Fusion 360",
   "author": "Forgecraft Pte Ltd",
   "main": "main.js",

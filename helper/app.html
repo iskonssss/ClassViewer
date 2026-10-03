@@ -221,7 +221,7 @@ async function join(){
   setStatus("wait", "Connecting to your trainer…");
   paintCtl();
   peer = new Peer(undefined, Object.assign({ debug:1 }, env.peer || {}));
-  peer.on("open", connect);
+  peer.on("open", () => { connect(); setTimeout(() => syncMonitors(), 800); });
   peer.on("connection", c => c.close()); // only we connect out; nobody can connect in
   peer.on("error", ex => {
     if (linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
@@ -259,7 +259,16 @@ setInterval(() => {
 
 // ----- second screens: send our screen to each of the trainer's view-only second screens too -----
 const monCalls = new Map(); let monIds = [];
-function syncMonitors(ids){
+const monTries = {}; let rejoining = false;
+function rejoinServer(){
+  if (rejoining || !peer || peer.destroyed) return;
+  rejoining = true;
+  try { peer.disconnect(); } catch {}
+  setTimeout(() => { rejoining = false; try { if (!peer.destroyed) peer.reconnect(); } catch {} }, 1000);
+}
+function syncMonitors(ids, reset){
+  if (ids) for (const id of ids) if (!monIds.includes(id)) monTries[id] = 0;
+  for (const id of (reset||[])) { const c = monCalls.get(id); if (c) { try { c.close(); } catch {} monCalls.delete(id); } }
   if (ids) monIds = ids.filter(x => typeof x === "string").slice(0, 4);
   for (const [id, c] of monCalls) if (!monIds.includes(id)) { try { c.close(); } catch {} monCalls.delete(id); }
   if (!stream || !stream.active || !peer || peer.destroyed) return;
@@ -269,6 +278,14 @@ function syncMonitors(ids){
     monCalls.set(id, c);
     c.on("close", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
     c.on("error", () => { if (monCalls.get(id) === c) monCalls.delete(id); });
+    // If the call never connects, our own link to the class server has probably gone stale: rejoin it and retry (max 3 tries).
+    setTimeout(() => {
+      const pc = c.peerConnection;
+      if (monCalls.get(id) !== c || (pc && pc.connectionState === "connected")) { monTries[id] = 0; return; }
+      monCalls.delete(id); try { c.close(); } catch {}
+      monTries[id] = (monTries[id] || 0) + 1;
+      if (monTries[id] <= 3) rejoinServer();
+    }, 12000);
     setTimeout(async () => { const pc = c.peerConnection; if (!pc) return; for (const snd of pc.getSenders()) { if (!snd.track || snd.track.kind !== "video") continue; try { const p = snd.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; p.encodings[0].maxBitrate = 300000; p.encodings[0].maxFramerate = 4; await snd.setParameters(p); } catch {} } }, 1000);
   }
 }
@@ -303,7 +320,7 @@ function onData(m){
     case "control-release": endControl(false); break;
     case "eyes": H.eyes(!!m.on, m.text || ""); break;
     case "point": if (typeof m.x === "number" && typeof m.y === "number") H.point(m.x, m.y); break;
-    case "monitors": if (Array.isArray(m.ids)) syncMonitors(m.ids); break;
+    case "monitors": if (Array.isArray(m.ids)) syncMonitors(m.ids, m.reset); break;
   }
 }
 async function grant(){
