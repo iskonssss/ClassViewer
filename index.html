@@ -112,6 +112,9 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .frontbar{text-align:center;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--surface)}
 .over{background:color-mix(in srgb,var(--accent) 12%,transparent);border-color:var(--accent)!important}
 .tile.dragging{opacity:.35}
+#tGrid,#tGrid *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.grid.mode-rows .tile,.grid.mode-seats .tile{touch-action:pan-y}
+.dragghost{position:fixed;z-index:60;pointer-events:none;background:var(--surface);border:2px solid var(--accent);border-radius:10px;padding:8px 12px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.3);transform:translate(-50%,-120%)}
 .compact .meta{padding:4px 6px;gap:4px;font-size:12px}
 .compact .pill{font-size:10px;padding:1px 6px}
 .compact .pill.kind{display:none}
@@ -265,11 +268,11 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
       <span class="lyopt" id="lyCols"><label class="hint" for="tCols">Columns</label> <input type="number" id="tCols" min="1" max="12" value="6"></span>
       <label class="hint lyopt" id="lyFlip" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="tFlip"> Front row at top</label>
       <button class="btn small lyopt" id="tClearSeats">Clear seating</button>
-      <span class="hint lyopt" id="lyHint">Drag screens to where each learner sits. Places are remembered by name.</span>
+      <span class="hint lyopt" id="lyHint">Drag screens to where each learner sits (on a touch screen, press and hold first). Places are remembered by name.</span>
     </div>
   </header>
   <p class="err" id="tErr" hidden style="padding-top:12px"></p>
-  <div class="eyesnote" id="tMonNote" hidden style="background:var(--accent);color:var(--accent-ink)">Second screen · view only. Controls stay on the trainer's laptop.</div>
+  <div class="eyesnote" id="tMonNote" hidden style="background:var(--accent);color:var(--accent-ink)">Second screen. You can watch and rearrange seats here (press and hold a screen, then drag). Other controls stay on the trainer's laptop.</div>
   <div class="eyesnote" id="tEyesNote" hidden>Learners' screens are covered. Click "Release screens" when you're done.</div>
   <section class="grid" id="tGrid"></section>
 </div>
@@ -738,7 +741,15 @@ function startTrainer(MONITOR){
       toast("Second screen connected");
       paintSecond();
     });
-    c.on("data", m => { if (m && m.type === "ping") { try { c.send({ type:"pong" }); } catch {} } });
+    c.on("data", m => {
+      if (!m || monitors.get(c.peer) !== c) return;
+      if (m.type === "ping") { try { c.send({ type:"pong" }); } catch {} }
+      if (m.type === "seat" && m.place && typeof m.place === "object") {
+        const clean = {};
+        for (const [k, v] of Object.entries(m.place).slice(0, 300)) if (v && Number.isFinite(v.r) && Number.isFinite(v.c)) clean[String(k).slice(0, 60)] = { r: Math.max(0, Math.min(50, v.r|0)), c: Math.max(0, Math.min(300, v.c|0)) };
+        seat.place = clean; saveSeat(); render();
+      }
+    });
     c.on("close", () => { if (monitors.get(c.peer) === c) { monitors.delete(c.peer); broadcastMonitors(); paintSecond(); } });
   }
   function broadcastMonitors(reset){ const ids = [...monitors.keys()]; for (const id of learners.keys()) send(id, { type:"monitors", ids, reset: reset ? [reset] : [] }); }
@@ -813,6 +824,7 @@ function startTrainer(MONITOR){
     }, 5000);
   }
   let lastRoster = "";
+  function sendSeatToTrainer(){ try { if (tconn && tconn.open) tconn.send({ type:"seat", place: seat.place }); } catch {} lastRoster = ""; }
   function applyRoster(m){
     const sig = JSON.stringify([m.learners, m.seat]);
     if (sig === lastRoster) return;
@@ -887,10 +899,9 @@ function startTrainer(MONITOR){
       if (!el) {
         el = document.createElement("div");
         el.className = "tile"; el.tabIndex = 0; el.setAttribute("role","button"); el.dataset.id = id;
-        el.addEventListener("dragstart", e => { dragId = id; el.classList.add("dragging"); try { e.dataTransfer.setData("text/plain", id); e.dataTransfer.effectAllowed = "move"; } catch {} });
-        el.addEventListener("dragend", () => { dragId = null; el.classList.remove("dragging"); clearOver(); });
+        el.addEventListener("pointerdown", e => dragDown(e, id, el));
         el.innerHTML = `<video muted playsinline autoplay></video><div class="noscreen"></div><div class="meta"><span class="name"></span><span class="pill stuck" hidden>Stuck</span><span class="pill off" hidden>Offline</span><span class="pill kind"></span></div>`;
-        el.addEventListener("click", () => openFocus(id));
+        el.addEventListener("click", () => { if (justDragged) { justDragged = false; return; } openFocus(id); });
         el.addEventListener("keydown", e => { if (e.key==="Enter"||e.key===" ") { e.preventDefault(); openFocus(id); } });
         tiles.set(id, el);
       }
@@ -912,7 +923,7 @@ function startTrainer(MONITOR){
       el.classList.toggle("is-ctl", L.ctl==="active");
       el.classList.toggle("is-off", !L.online);
       el.setAttribute("aria-label", (L.name||"Learner") + (L.stuck ? ", stuck" : "") + ". Open full screen");
-      el.draggable = !MONITOR && seat.mode !== "auto";
+      el.draggable = false;
     }
     placeTiles(list);
     if (focusId) fillFocus();
@@ -991,17 +1002,54 @@ function startTrainer(MONITOR){
   }
   function replay(){ for (const t of tiles.values()) { const v = t.querySelector("video"); if (v && v.srcObject && v.paused) v.play().catch(()=>{}); } }
 
-  function dropTarget(e){ return e.target.closest && e.target.closest(".lanebody, .seat"); }
-  $("tGrid").addEventListener("dragover", e => {
-    if (!dragId) return;
-    const t = dropTarget(e); if (!t) return;
-    e.preventDefault(); try { e.dataTransfer.dropEffect = "move"; } catch {}
-    if (!t.classList.contains("over")) { clearOver(); t.classList.add("over"); }
+  // ----- drag & drop (mouse: press and move; touch: long-press then move) -----
+  let drag = null, justDragged = false;
+  function targetAt(x, y){ const e = document.elementFromPoint(x, y); return e && e.closest ? e.closest(".lanebody, .seat") : null; }
+  function dragDown(e, id, el){
+    if (seat.mode === "auto" || (e.button && e.button !== 0)) return;
+    drag = { id, el, pid:e.pointerId, sx:e.clientX, sy:e.clientY, x:e.clientX, y:e.clientY, touch: e.pointerType !== "mouse", started:false, timer:null, ghost:null };
+    if (drag.touch) drag.timer = setTimeout(() => beginDrag(), 380);
+  }
+  function beginDrag(){
+    if (!drag || drag.started) return;
+    drag.started = true; dragId = drag.id;
+    drag.el.classList.add("dragging");
+    const L = learners.get(drag.id);
+    drag.ghost = el("div", "dragghost", (L && L.name) || "Learner");
+    drag.ghost.style.left = drag.x + "px"; drag.ghost.style.top = drag.y + "px";
+    document.body.appendChild(drag.ghost);
+    try { navigator.vibrate && navigator.vibrate(15); } catch {}
+  }
+  function endDrag(){
+    if (!drag) return;
+    clearTimeout(drag.timer);
+    if (drag.ghost) drag.ghost.remove();
+    drag.el.classList.remove("dragging");
+    clearOver(); dragId = null; drag = null;
+  }
+  document.addEventListener("pointermove", e => {
+    if (!drag || e.pointerId !== drag.pid) return;
+    drag.x = e.clientX; drag.y = e.clientY;
+    const moved = Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy);
+    if (!drag.started) {
+      if (drag.touch) { if (moved > 12) endDrag(); return; } // finger moved before the long-press: the person is scrolling
+      if (moved > 6) beginDrag(); else return;
+    }
+    drag.ghost.style.left = e.clientX + "px"; drag.ghost.style.top = e.clientY + "px";
+    const t = targetAt(e.clientX, e.clientY);
+    if (!t) clearOver(); else if (!t.classList.contains("over")) { clearOver(); t.classList.add("over"); }
   });
-  $("tGrid").addEventListener("dragleave", e => { const t = dropTarget(e); if (t && !t.contains(e.relatedTarget)) t.classList.remove("over"); });
-  $("tGrid").addEventListener("drop", e => {
-    const t = dropTarget(e); if (!t || !dragId) return;
-    e.preventDefault(); clearOver();
+  // stop iPad Safari scrolling the page while a tile is being dragged
+  document.addEventListener("touchmove", e => { if (drag && drag.started) e.preventDefault(); }, { passive:false });
+  document.addEventListener("pointerup", e => {
+    if (!drag || e.pointerId !== drag.pid) return;
+    if (drag.started) { const t = targetAt(e.clientX, e.clientY); const id = drag.id; justDragged = true; setTimeout(() => justDragged = false, 400); endDrag(); if (t) dropOn(t, id, e.clientX, e.clientY); }
+    else endDrag();
+  });
+  document.addEventListener("pointercancel", e => { if (drag && e.pointerId === drag.pid) endDrag(); });
+  document.addEventListener("contextmenu", e => { if (drag && drag.started) e.preventDefault(); });
+
+  function dropOn(t, dragId, cx, cy){
     const L = learners.get(dragId); if (!L) return;
     const me = nk(L), old = seat.place[me];
     if (t.classList.contains("lanebody")) {
@@ -1009,7 +1057,7 @@ function startTrainer(MONITOR){
       if (r < 0) { delete seat.place[me]; }
       else {
         const shown = [...t.querySelectorAll(".tile")].filter(x => x.dataset.id !== dragId);
-        let idx = shown.findIndex(x => { const b = x.getBoundingClientRect(); return e.clientY < b.top || (e.clientY <= b.bottom && e.clientX < b.left + b.width/2); });
+        let idx = shown.findIndex(x => { const b = x.getBoundingClientRect(); return cy < b.top || (cy <= b.bottom && cx < b.left + b.width/2); });
         if (idx < 0) idx = shown.length;
         let ids = shown.map(x => x.dataset.id);
         if (!seat.frontTop) { ids.reverse(); idx = ids.length - idx; }
@@ -1025,8 +1073,9 @@ function startTrainer(MONITOR){
       }
       seat.place[me] = { r, c };
     }
-    saveSeat(); render();
-  });
+    if (MONITOR) sendSeatToTrainer(); else saveSeat();
+    render();
+  }
 
   function paintLayoutBar(){
     $("tLayout").value = seat.mode; $("tRows").value = seat.rows; $("tCols").value = seat.cols; $("tFlip").checked = !!seat.frontTop;
