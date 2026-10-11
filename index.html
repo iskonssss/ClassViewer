@@ -747,7 +747,7 @@ function startTrainer(MONITOR){
       if (m.type === "seat" && m.place && typeof m.place === "object") {
         const clean = {};
         for (const [k, v] of Object.entries(m.place).slice(0, 300)) if (v && Number.isFinite(v.r) && Number.isFinite(v.c)) clean[String(k).slice(0, 60)] = { r: Math.max(0, Math.min(50, v.r|0)), c: Math.max(0, Math.min(300, v.c|0)) };
-        seat.place = clean; saveSeat(); render();
+        seat.place = clean; saveSeat(); sendRoster(true); render();
       }
     });
     c.on("close", () => { if (monitors.get(c.peer) === c) { monitors.delete(c.peer); broadcastMonitors(); paintSecond(); } });
@@ -758,7 +758,7 @@ function startTrainer(MONITOR){
     if (MONITOR || !monitors.size) return;
     clearTimeout(rosterT);
     rosterT = setTimeout(() => {
-      const msg = { type:"roster", seat: { mode:seat.mode, rows:seat.rows, cols:seat.cols, frontTop:seat.frontTop, place:seat.place }, eyes: eyes.on,
+      const msg = { type:"roster", seatEdit: 1, seat: { mode:seat.mode, rows:seat.rows, cols:seat.cols, frontTop:seat.frontTop, place:seat.place }, eyes: eyes.on,
         learners: [...learners].map(([id,L]) => ({ id, name:L.name||"Learner", stuck:!!L.stuck, stuckAt:L.stuckAt||null, online:!!L.online, client:L.client, canControl:!!L.canControl, sharing:L.sharing!==false, ctl:L.ctl, canMonitor:!!L.canMonitor })) };
       for (const c of monitors.values()) { try { if (c.open) c.send(msg); } catch {} }
     }, now ? 0 : 250);
@@ -786,7 +786,7 @@ function startTrainer(MONITOR){
       if (tconn && tconn.open && Date.now() - monHeard < 20000) return;
       try { tconn && tconn.close(); } catch {}
       tconn = peer.connect(trainerId, { reliable:true, metadata:{ role:"monitor", key: (params.get("key")||"").replace(/\D/g,"") } });
-      tconn.on("open", () => { monHeard = monOpenedAt = Date.now(); monEverLinked = true; if (!monDenied) $("tErr").hidden = true; render(); });
+      tconn.on("open", () => { monHeard = monOpenedAt = Date.now(); monEverLinked = true; if (!monDenied) $("tErr").hidden = true; if (pendingSeat) { pendingSeat.at = Date.now(); pushPendingSeat(); } render(); });
       tconn.on("data", m => {
         monHeard = Date.now();
         if (!m) return;
@@ -823,9 +823,30 @@ function startTrainer(MONITOR){
       render();
     }, 5000);
   }
-  let lastRoster = "";
-  function sendSeatToTrainer(){ try { if (tconn && tconn.open) tconn.send({ type:"seat", place: seat.place }); } catch {} lastRoster = ""; }
+  let lastRoster = "", pendingSeat = null;
+  // A seat move made here is kept on screen until the trainer's laptop confirms it, so a roster
+  // that was already on its way (or a dropped message) can't snap the tiles back.
+  function sendSeatToTrainer(){
+    const place = JSON.parse(JSON.stringify(seat.place));
+    pendingSeat = { place, sig: JSON.stringify(place), at: Date.now(), tries: 0 };
+    pushPendingSeat();
+  }
+  function pushPendingSeat(){
+    if (!pendingSeat) return;
+    pendingSeat.tries++;
+    try { if (tconn && tconn.open) tconn.send({ type:"seat", place: pendingSeat.place }); } catch {}
+    lastRoster = "";
+  }
+  function canonPlace(p){ const o = {}; for (const k of Object.keys(p || {}).sort()) o[k] = { r: p[k].r, c: p[k].c }; return JSON.stringify(o); }
   function applyRoster(m){
+    if (pendingSeat && m.seat) {
+      if (canonPlace(m.seat.place) === canonPlace(pendingSeat.place)) pendingSeat = null;   // laptop has it
+      else if (Date.now() - pendingSeat.at < 8000) { m.seat = Object.assign({}, m.seat, { place: pendingSeat.place }); if (pendingSeat.tries < 4) pushPendingSeat(); }
+      else {
+        pendingSeat = null;
+        toast("The trainer's laptop didn't save that move. Refresh ClassView on the laptop, then try again.");
+      }
+    }
     const sig = JSON.stringify([m.learners, m.seat]);
     if (sig === lastRoster) return;
     lastRoster = sig;
