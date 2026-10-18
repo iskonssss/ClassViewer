@@ -320,7 +320,7 @@ function onData(m){
     case "control-release": endControl(false); break;
     case "eyes": {
       const on = !!m.on;
-      Promise.resolve(H.eyes(on, m.text || "")).then(r => send({ type:"eyes-ack", on, ok: !!(r && r.ok), n: (r && r.n) || 0 }), () => send({ type:"eyes-ack", on, ok:false }));
+      Promise.resolve(H.eyes(on, m.text || "")).then(r => send({ type:"eyes-ack", on, ok: !!(r && r.ok), n: (r && r.n) || 0, err: (r && r.err) || "" }), e => send({ type:"eyes-ack", on, ok:false, err: String((e && e.message) || e).slice(0,160) }));
       break;
     }
     case "point": if (typeof m.x === "number" && typeof m.y === "number") H.point(m.x, m.y); break;

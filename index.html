@@ -877,7 +877,7 @@ function startTrainer(MONITOR){
       case "control-granted": L.ctl="active"; if (focusId===id) { startCapture(); toast("You're in control of "+(L.name||"this laptop")); } sendQ(id); break;
       case "control-denied": L.ctl="idle"; if (focusId===id) toast(m.reason==="browser" ? "This learner joined in the browser, so control isn't available" : (L.name||"Learner")+" couldn't be controlled"); break;
       case "control-ended": L.ctl="idle"; if (focusId===id) { stopCapture(); toast((L.name||"Learner")+" ended control"); } sendQ(id); break;
-      case "eyes-ack": L.eyesAck = { on: !!m.on, ok: !!m.ok }; paintEyesNote(); break;
+      case "eyes-ack": L.eyesAck = { on: !!m.on, ok: !!m.ok, err: String(m.err || "").slice(0,160) }; if (m.err) console.warn("Eyes on me —", L.name, ":", m.err); paintEyesNote(); break;
       case "bye": learners.delete(id); if (focusId===id) closeFocus(); break;
     }
     render();
@@ -940,7 +940,7 @@ function startTrainer(MONITOR){
       el.querySelector(".pill.stuck").hidden = !(L.stuck && L.online);
       el.querySelector(".pill.off").hidden = L.online;
       const ul = el.querySelector(".pill.unlocked"), why = MONITOR ? "" : eyesProblem(L);
-      ul.hidden = !why; setText(ul, why);
+      ul.hidden = !why; setText(ul, why); ul.title = why && L.eyesAck && L.eyesAck.err ? "Reason: " + L.eyesAck.err : "";
       const k = el.querySelector(".pill.kind");
       setText(k, L.client==="helper" ? (L.canControl ? "Helper" : "Helper · no control") : "Browser");
       k.classList.toggle("helper", L.client==="helper" && L.canControl);
@@ -1285,9 +1285,11 @@ function startTrainer(MONITOR){
     const browserBad = on.filter(L => eyesProblem(L) === "Not locked (browser)").map(nm);
     let msg = helperBad.length || browserBad.length ? "" : "Learners' screens are covered. ";
     if (helperBad.length) msg += "Not covered yet: " + helperBad.join(", ") + " (retrying). ";
+    const errs = on.filter(L => eyesProblem(L) === "Not covered" && L.eyesAck && L.eyesAck.err).map(L => nm(L) + ": " + L.eyesAck.err);
+    if (errs.length) msg += "Reason: " + errs.join("; ") + ". ";
     if (browserBad.length) msg += "In the browser, so their screen can't be locked: " + browserBad.join(", ") + ". ";
     $("tEyesNote").textContent = msg + "Click \"Release screens\" when you're done.";
-    for (const [id, t] of tiles) { const L = learners.get(id); if (!L) continue; const ul = t.querySelector(".pill.unlocked"), why = eyesProblem(L); ul.hidden = !why; setText(ul, why); }
+    for (const [id, t] of tiles) { const L = learners.get(id); if (!L) continue; const ul = t.querySelector(".pill.unlocked"), why = eyesProblem(L); ul.hidden = !why; setText(ul, why); ul.title = why && L.eyesAck && L.eyesAck.err ? "Reason: " + L.eyesAck.err : ""; }
   }
   function setEyesAll(on){
     eyes = { on, text: $("tEyesMsg").value.trim() };

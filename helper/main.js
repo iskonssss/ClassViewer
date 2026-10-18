@@ -182,8 +182,12 @@ ipcMain.handle("point", async (_e, x, y) => {
 let eyesWins = [], eyesTimer = null, eyesGuard = null, eyesText = "", eyesDisplays = "";
 const EYES_DEFAULT = "Eyes on the trainer, please";
 ipcMain.handle("eyes", async (_e, on, text) => {
-  if (!on) { eyesOff(); return { on:false, ok:true }; }
-  return await eyesOn(String(text || ""));
+  try {
+    if (!on) { eyesOff(); return { on:false, ok:true }; }
+    const r = await eyesOn(String(text || ""));
+    if (!r.ok) r.err = "cover not visible (" + r.n + " of " + screen.getAllDisplays().length + " screens)";
+    return r;
+  } catch (e) { return { on: !!on, ok:false, err: String((e && e.message) || e).slice(0, 160) }; }
 });
 const displaySig = () => screen.getAllDisplays().map(d => [d.id, d.bounds.x, d.bounds.y, d.bounds.width, d.bounds.height].join(":")).join("|");
 function eyesStatus(){
