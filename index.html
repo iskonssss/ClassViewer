@@ -94,6 +94,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .pill{font-size:12px;font-weight:700;border-radius:99px;padding:2px 9px;white-space:nowrap}
 .pill.stuck{background:var(--stuck);color:#1d1204}
 .pill.off{background:var(--bad);color:#fff}
+.pill.unlocked{background:var(--bad);color:#fff}
 .pill.kind{border:1px solid var(--line);color:var(--muted);font-weight:600}
 .pill.kind.helper{border-color:var(--ctl);color:var(--ctl)}
 .grid.mode-rows,.grid.mode-seats{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
@@ -669,7 +670,7 @@ function startTrainer(MONITOR){
         const L = learners.get(id) || { stuck:false, joinedAt:Date.now() };
         Object.assign(L, c.metadata || {}, { conn:c, online:true, ctl:"idle", lastSeen:Date.now() });
         learners.set(id, L);
-        if (eyes.on) { try { c.send({ type:"eyes", on:true, text:eyes.text }); } catch {} }
+        if (eyes.on) { L.eyesAck = null; L.eyesSent = Date.now(); try { c.send({ type:"eyes", on:true, text:eyes.text }); } catch {} }
         render();
       });
       c.on("data", m => onData(c.peer, m));
@@ -876,6 +877,7 @@ function startTrainer(MONITOR){
       case "control-granted": L.ctl="active"; if (focusId===id) { startCapture(); toast("You're in control of "+(L.name||"this laptop")); } sendQ(id); break;
       case "control-denied": L.ctl="idle"; if (focusId===id) toast(m.reason==="browser" ? "This learner joined in the browser, so control isn't available" : (L.name||"Learner")+" couldn't be controlled"); break;
       case "control-ended": L.ctl="idle"; if (focusId===id) { stopCapture(); toast((L.name||"Learner")+" ended control"); } sendQ(id); break;
+      case "eyes-ack": L.eyesAck = { on: !!m.on, ok: !!m.ok }; paintEyesNote(); break;
       case "bye": learners.delete(id); if (focusId===id) closeFocus(); break;
     }
     render();
@@ -921,7 +923,7 @@ function startTrainer(MONITOR){
         el = document.createElement("div");
         el.className = "tile"; el.tabIndex = 0; el.setAttribute("role","button"); el.dataset.id = id;
         el.addEventListener("pointerdown", e => dragDown(e, id, el));
-        el.innerHTML = `<video muted playsinline autoplay></video><div class="noscreen"></div><div class="meta"><span class="name"></span><span class="pill stuck" hidden>Stuck</span><span class="pill off" hidden>Offline</span><span class="pill kind"></span></div>`;
+        el.innerHTML = `<video muted playsinline autoplay></video><div class="noscreen"></div><div class="meta"><span class="name"></span><span class="pill stuck" hidden>Stuck</span><span class="pill off" hidden>Offline</span><span class="pill unlocked" hidden></span><span class="pill kind"></span></div>`;
         el.addEventListener("click", () => { if (justDragged) { justDragged = false; return; } openFocus(id); });
         el.addEventListener("keydown", e => { if (e.key==="Enter"||e.key===" ") { e.preventDefault(); openFocus(id); } });
         tiles.set(id, el);
@@ -937,6 +939,8 @@ function startTrainer(MONITOR){
       setText(el.querySelector(".name"), L.name || "Learner");
       el.querySelector(".pill.stuck").hidden = !(L.stuck && L.online);
       el.querySelector(".pill.off").hidden = L.online;
+      const ul = el.querySelector(".pill.unlocked"), why = MONITOR ? "" : eyesProblem(L);
+      ul.hidden = !why; setText(ul, why);
       const k = el.querySelector(".pill.kind");
       setText(k, L.client==="helper" ? (L.canControl ? "Helper" : "Helper · no control") : "Browser");
       k.classList.toggle("helper", L.client==="helper" && L.canControl);
@@ -1264,10 +1268,33 @@ function startTrainer(MONITOR){
   applySize();
 
   // ----- Eyes on me -----
+  let eyesCheckT = null;
+  const ackable = L => L.client === "helper" && verGte(L.version, "0.1.7");
+  // Why this learner's screen may NOT be covered right now ("" = fine / not known to be a problem)
+  function eyesProblem(L){
+    if (!eyes.on || !L.online || Date.now() - (eyes.at||0) < 3000) return "";
+    if (L.client !== "helper") return "Not locked (browser)";
+    if (!ackable(L)) return "";                       // older Helper: can't confirm, assume it worked
+    return L.eyesAck && L.eyesAck.on && L.eyesAck.ok ? "" : "Not covered";
+  }
+  function paintEyesNote(){
+    if (!eyes.on) return;
+    const on = [...learners.values()].filter(L => L.online);
+    const nm = L => L.name || "Learner";
+    const helperBad = on.filter(L => eyesProblem(L) === "Not covered").map(nm);
+    const browserBad = on.filter(L => eyesProblem(L) === "Not locked (browser)").map(nm);
+    let msg = helperBad.length || browserBad.length ? "" : "Learners' screens are covered. ";
+    if (helperBad.length) msg += "Not covered yet: " + helperBad.join(", ") + " (retrying). ";
+    if (browserBad.length) msg += "In the browser, so their screen can't be locked: " + browserBad.join(", ") + ". ";
+    $("tEyesNote").textContent = msg + "Click \"Release screens\" when you're done.";
+    for (const [id, t] of tiles) { const L = learners.get(id); if (!L) continue; const ul = t.querySelector(".pill.unlocked"), why = eyesProblem(L); ul.hidden = !why; setText(ul, why); }
+  }
   function setEyesAll(on){
     eyes = { on, text: $("tEyesMsg").value.trim() };
     if (on) for (const id of learners.keys()) if (learners.get(id).ctl==="active") releaseControl(id);
-    for (const id of learners.keys()) send(id, { type:"eyes", on, text: eyes.text });
+    eyes.at = Date.now();
+    for (const [id, L] of learners) { L.eyesAck = null; L.eyesSent = Date.now(); send(id, { type:"eyes", on, text: eyes.text }); }
+    clearTimeout(eyesCheckT); eyesCheckT = setTimeout(() => { paintEyesNote(); render(); }, 3500);
     $("tEyes").textContent = on ? "Release screens" : "Eyes on me";
     $("tEyes").classList.toggle("on", on);
     $("tEyesNote").hidden = !on;
@@ -1289,6 +1316,7 @@ function startTrainer(MONITOR){
   };
   window.addEventListener("beforeunload", () => { for (const id of learners.keys()) { releaseControl(id); if (eyes.on) send(id, { type:"eyes", on:false }); } });
 
+  setInterval(() => { if (!MONITOR && eyes.on) paintEyesNote(); }, 2000);
   setInterval(() => {
     if (MONITOR) return; // the second screen learns who's online from the trainer's roster
     for (const [id,L] of learners) {
@@ -1296,6 +1324,10 @@ function startTrainer(MONITOR){
         // a link that has gone silent for 20s is dead even if the browser hasn't noticed yet
         if (L.lastSeen && Date.now() - L.lastSeen > 20000) { try { L.conn.close(); } catch {} continue; }
         send(id,{type:"ping"});
+        // Eyes on me: keep re-sending until the Helper confirms the screens are covered (or uncovered)
+        if (ackable(L) && L.eyesSent && Date.now() - L.eyesSent > 3000 && !(L.eyesAck && L.eyesAck.on === eyes.on && (L.eyesAck.ok || !eyes.on))) {
+          L.eyesSent = Date.now(); send(id, { type:"eyes", on: eyes.on, text: eyes.text });
+        }
       } else if (L.online) { L.online=false; render(); }
     }
   }, 5000);

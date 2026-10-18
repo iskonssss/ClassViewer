@@ -318,7 +318,11 @@ function onData(m){
       grant();
       break;
     case "control-release": endControl(false); break;
-    case "eyes": H.eyes(!!m.on, m.text || ""); break;
+    case "eyes": {
+      const on = !!m.on;
+      Promise.resolve(H.eyes(on, m.text || "")).then(r => send({ type:"eyes-ack", on, ok: !!(r && r.ok), n: (r && r.n) || 0 }), () => send({ type:"eyes-ack", on, ok:false }));
+      break;
+    }
     case "point": if (typeof m.x === "number" && typeof m.y === "number") H.point(m.x, m.y); break;
     case "monitors": if (Array.isArray(m.ids)) syncMonitors(m.ids, m.reset); break;
   }

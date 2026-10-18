@@ -177,31 +177,74 @@ ipcMain.handle("point", async (_e, x, y) => {
 });
 
 // ---------- "Eyes on me": cover every display until the trainer releases ----------
-let eyesWins = [], eyesTimer = null;
-ipcMain.handle("eyes", (_e, on, text) => { if (on) eyesOn(String(text || "")); else eyesOff(); return true; });
-function eyesOn(text) {
-  eyesOff();
-  for (const d of screen.getAllDisplays()) {
+// Idempotent (repeat messages don't flicker), re-asserted every second so nothing can sit on top,
+// and it reports back whether every display is really covered.
+let eyesWins = [], eyesTimer = null, eyesGuard = null, eyesText = "", eyesDisplays = "";
+const EYES_DEFAULT = "Eyes on the trainer, please";
+ipcMain.handle("eyes", async (_e, on, text) => {
+  if (!on) { eyesOff(); return { on:false, ok:true }; }
+  return await eyesOn(String(text || ""));
+});
+const displaySig = () => screen.getAllDisplays().map(d => [d.id, d.bounds.x, d.bounds.y, d.bounds.width, d.bounds.height].join(":")).join("|");
+function eyesStatus(){
+  const alive = eyesWins.filter(w => !w.isDestroyed());
+  const ok = alive.length > 0 && alive.length === screen.getAllDisplays().length && alive.every(w => w.isVisible());
+  return { on:true, ok, n: alive.length };
+}
+async function eyesOn(text) {
+  const changedText = text !== eyesText; eyesText = text;
+  if (eyesWins.length && eyesDisplays === displaySig()) {
+    if (changedText) for (const w of eyesWins) { try { w.webContents.executeJavaScript("document.getElementById('m').textContent=" + JSON.stringify(text || EYES_DEFAULT)); } catch {} }
+    eyesAssert();
+    return eyesStatus();
+  }
+  await eyesBuild();
+  clearInterval(eyesGuard); eyesGuard = setInterval(eyesAssert, 1000);
+  // Safety net: never leave a screen covered for more than 15 minutes.
+  clearTimeout(eyesTimer); eyesTimer = setTimeout(eyesOff, 15 * 60 * 1000);
+  return eyesStatus();
+}
+function eyesBuild() {
+  for (const w of eyesWins) { try { w.setClosable(true); w.destroy(); } catch {} }
+  eyesWins = []; eyesDisplays = displaySig();
+  return Promise.all(screen.getAllDisplays().map(d => new Promise(res => {
     const w = new BrowserWindow({
       x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height,
       frame: false, resizable: false, movable: false, minimizable: false, maximizable: false, closable: false,
       fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, show: false, backgroundColor: "#10161b",
       enableLargerThanScreen: true,
-      webPreferences: { contextIsolation: true, nodeIntegration: false },
+      webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
     });
     w.setAlwaysOnTop(true, "screen-saver");
     if (IS_MAC) w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    w.loadFile(path.join(__dirname, "eyes.html"), { query: { text } });
-    w.once("ready-to-show", () => { w.setBounds(d.bounds); w.show(); w.focus(); });
+    w.loadFile(path.join(__dirname, "eyes.html"), { query: { text: eyesText } });
+    let done = false;
+    const showIt = () => { if (done || w.isDestroyed()) return; done = true; w.setBounds(d.bounds); w.show(); w.moveTop(); w.focus(); res(); };
+    w.once("ready-to-show", showIt);
+    setTimeout(showIt, 2000);   // don't wait forever for the first paint: show it anyway
+    w.on("minimize", () => { try { w.restore(); } catch {} });
     eyesWins.push(w);
+  })));
+}
+function eyesAssert() {
+  if (!eyesWins.length) return;
+  if (eyesDisplays !== displaySig() || eyesWins.some(w => w.isDestroyed())) { eyesBuild(); return; }
+  let anyFocused = false;
+  for (const w of eyesWins) {
+    try {
+      if (!w.isVisible() || w.isMinimized()) { w.restore(); w.show(); }
+      w.setAlwaysOnTop(true, "screen-saver"); w.moveTop();
+      if (w.isFocused()) anyFocused = true;
+    } catch {}
   }
-  // Safety net: never leave a screen covered for more than 15 minutes.
-  eyesTimer = setTimeout(eyesOff, 15 * 60 * 1000);
+  // keep the keyboard on the cover too, so shortcuts can't reach the app underneath
+  if (!anyFocused) { try { if (IS_MAC) app.focus({ steal: true }); eyesWins[0].focus(); } catch {} }
 }
 function eyesOff() {
   clearTimeout(eyesTimer); eyesTimer = null;
+  clearInterval(eyesGuard); eyesGuard = null;
   for (const w of eyesWins) { try { w.setClosable(true); w.destroy(); } catch {} }
-  eyesWins = [];
+  eyesWins = []; eyesText = ""; eyesDisplays = "";
 }
 
 function endControl() {
