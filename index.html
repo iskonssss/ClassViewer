@@ -87,6 +87,9 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .tile.is-stuck{border-color:var(--stuck);box-shadow:0 0 0 3px color-mix(in srgb,var(--stuck) 35%,transparent)}
 .tile.is-ctl{border-color:var(--ctl)}
 .tile.is-off{opacity:.55}
+.tile .rmbtn{position:absolute;top:6px;right:6px;z-index:4;background:var(--bad);color:#fff;border:0;border-radius:999px;font:700 13px/1 inherit;padding:8px 12px;min-height:34px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.tiny .tile .rmbtn{padding:6px 8px;min-height:28px;font-size:12px}
+.oesc{position:fixed;left:calc(env(safe-area-inset-left,0px) + 16px);bottom:calc(env(safe-area-inset-bottom,0px) + 16px);z-index:25;min-width:96px;min-height:52px;font-size:18px;box-shadow:0 4px 16px rgba(0,0,0,.35)}
 .tile video{width:100%;aspect-ratio:16/10;background:var(--tile);object-fit:contain;display:block}
 .tile .noscreen{position:absolute;inset:0 0 auto 0;aspect-ratio:16/10;display:grid;place-items:center;color:#9fb0ba;font-size:13px}
 .meta{display:flex;align-items:center;gap:8px;padding:8px 10px;min-width:0}
@@ -296,6 +299,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
     <video id="oVideo" muted playsinline autoplay></video>
     <span class="ctlbadge" id="oBadge" hidden>Controlling</span>
   </div>
+  <button class="btn primary oesc" id="oClose2" hidden aria-label="Close this view">✕ Close</button>
 </div>
 
 <div id="second" class="join" hidden>
@@ -670,6 +674,7 @@ function startTrainer(MONITOR){
         const L = learners.get(id) || { stuck:false, joinedAt:Date.now() };
         Object.assign(L, c.metadata || {}, { conn:c, online:true, ctl:"idle", lastSeen:Date.now() });
         learners.set(id, L);
+        dropTwins(id);
         if (eyes.on) { L.eyesAck = null; L.eyesSent = Date.now(); try { c.send({ type:"eyes", on:true, text:eyes.text }); } catch {} }
         render();
       });
@@ -683,6 +688,7 @@ function startTrainer(MONITOR){
         if (L.call && L.call!==call) { try{ L.call.close(); }catch{} }
         L.call = call; L.stream = s; L.sharing = true; L.online = true;
         learners.set(call.peer, L);
+        dropTwins(call.peer);
         sendQ(call.peer);
         render();
       });
@@ -745,6 +751,7 @@ function startTrainer(MONITOR){
     c.on("data", m => {
       if (!m || monitors.get(c.peer) !== c) return;
       if (m.type === "ping") { try { c.send({ type:"pong" }); } catch {} }
+      if (m.type === "remove" && typeof m.id === "string") { const L = learners.get(m.id); if (L && !L.online) { dropLearner(m.id); render(); } }
       if (m.type === "seat" && m.place && typeof m.place === "object") {
         const clean = {};
         for (const [k, v] of Object.entries(m.place).slice(0, 300)) if (v && Number.isFinite(v.r) && Number.isFinite(v.c)) clean[String(k).slice(0, 60)] = { r: Math.max(0, Math.min(50, v.r|0)), c: Math.max(0, Math.min(300, v.c|0)) };
@@ -870,7 +877,7 @@ function startTrainer(MONITOR){
     if (m.type === "pong" || m.type === "ping") return; // heartbeat only: nothing on screen changes
     switch (m.type) {
       case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy, version:m.version,
-        canMonitor: !!m.mon || (m.client==="helper" && verGte(m.version, "0.1.3")) }); send(id, { type:"monitors", ids:[...monitors.keys()] }); break;
+        canMonitor: !!m.mon || (m.client==="helper" && verGte(m.version, "0.1.3")) }); dropTwins(id); send(id, { type:"monitors", ids:[...monitors.keys()] }); break;
       case "caps": Object.assign(L, { canControl:!!m.canControl, ctlWhy:m.ctlWhy }); break;
       case "stuck": { const was=L.stuck; L.stuck=!!m.value; L.stuckAt = L.stuck ? Date.now() : null; if (L.stuck && !was) beep(); break; }
       case "sharing": L.sharing=!!m.value; if(!m.value) L.stream=null; break;
@@ -923,7 +930,10 @@ function startTrainer(MONITOR){
         el = document.createElement("div");
         el.className = "tile"; el.tabIndex = 0; el.setAttribute("role","button"); el.dataset.id = id;
         el.addEventListener("pointerdown", e => dragDown(e, id, el));
-        el.innerHTML = `<video muted playsinline autoplay></video><div class="noscreen"></div><div class="meta"><span class="name"></span><span class="pill stuck" hidden>Stuck</span><span class="pill off" hidden>Offline</span><span class="pill unlocked" hidden></span><span class="pill kind"></span></div>`;
+        el.innerHTML = `<button class="rmbtn" type="button" hidden title="Remove this disconnected screen">✕ Remove</button><video muted playsinline autoplay></video><div class="noscreen"></div><div class="meta"><span class="name"></span><span class="pill stuck" hidden>Stuck</span><span class="pill off" hidden>Offline</span><span class="pill unlocked" hidden></span><span class="pill kind"></span></div>`;
+        const rb = el.querySelector(".rmbtn");
+        rb.addEventListener("pointerdown", e => e.stopPropagation());
+        rb.addEventListener("click", e => { e.stopPropagation(); removeLearner(id); });
         el.addEventListener("click", () => { if (justDragged) { justDragged = false; return; } openFocus(id); });
         el.addEventListener("keydown", e => { if (e.key==="Enter"||e.key===" ") { e.preventDefault(); openFocus(id); } });
         tiles.set(id, el);
@@ -939,6 +949,7 @@ function startTrainer(MONITOR){
       setText(el.querySelector(".name"), L.name || "Learner");
       el.querySelector(".pill.stuck").hidden = !(L.stuck && L.online);
       el.querySelector(".pill.off").hidden = L.online;
+      el.querySelector(".rmbtn").hidden = !!L.online;
       const ul = el.querySelector(".pill.unlocked"), why = MONITOR ? "" : eyesProblem(L);
       ul.hidden = !why; setText(ul, why); ul.title = why && L.eyesAck && L.eyesAck.err ? "Reason: " + L.eyesAck.err : "";
       const k = el.querySelector(".pill.kind");
@@ -1170,6 +1181,9 @@ function startTrainer(MONITOR){
   }
   function step(d){ const ids = ordered().map(([id])=>id); if (!ids.length) return; const i = ids.indexOf(focusId); openFocus(ids[(i+d+ids.length)%ids.length]); }
   $("oClose").onclick = closeFocus;
+  // second bottom-left close button, within thumb reach on the iPad / touch screens
+  $("oClose2").hidden = !(MONITOR || matchMedia("(pointer: coarse)").matches);
+  $("oClose2").onclick = closeFocus;
   $("oPrev").onclick = () => step(-1);
   $("oNext").onclick = () => step(1);
   $("oHelped").onclick = () => { const L=learners.get(focusId); if(!L) return; L.stuck=false; send(focusId,{type:"helped"}); render(); };
@@ -1290,6 +1304,26 @@ function startTrainer(MONITOR){
     if (browserBad.length) msg += "In the browser, so their screen can't be locked: " + browserBad.join(", ") + ". ";
     $("tEyesNote").textContent = msg + "Click \"Release screens\" when you're done.";
     for (const [id, t] of tiles) { const L = learners.get(id); if (!L) continue; const ul = t.querySelector(".pill.unlocked"), why = eyesProblem(L); ul.hidden = !why; setText(ul, why); ul.title = why && L.eyesAck && L.eyesAck.err ? "Reason: " + L.eyesAck.err : ""; }
+  }
+  // ----- disconnected screens: remove by hand, or replaced automatically when the same name rejoins -----
+  function dropLearner(id){
+    const L = learners.get(id); if (!L) return;
+    try { L.conn && L.conn.close(); } catch {} try { L.call && L.call.close(); } catch {}
+    learners.delete(id);
+    if (focusId === id) closeFocus();
+  }
+  function removeLearner(id){
+    const L = learners.get(id); if (!L || L.online) return;
+    if (MONITOR) { try { if (tconn && tconn.open) tconn.send({ type:"remove", id }); } catch {} }
+    dropLearner(id); render();
+    if (!MONITOR) toast((L.name || "Learner") + " removed");
+  }
+  const nameKey = n => String(n || "").trim().toLowerCase();
+  function dropTwins(id){
+    if (MONITOR) return;
+    const L = learners.get(id), k = L && nameKey(L.name);
+    if (!k || k === "learner") return;
+    for (const [oid, O] of [...learners]) if (oid !== id && !O.online && nameKey(O.name) === k) dropLearner(oid);
   }
   function setEyesAll(on){
     eyes = { on, text: $("tEyesMsg").value.trim() };
