@@ -1,7 +1,7 @@
 {
   "name": "classview-keys",
   "productName": "ClassView Keys",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shows the keys and mouse buttons the trainer presses, with shortcut labels",
   "author": "Forgecraft Pte Ltd",
   "main": "main.js",
