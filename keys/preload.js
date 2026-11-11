@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("keys", {
   dragStart: () => ipcRenderer.send("drag-start"),
   dragEnd: () => ipcRenderer.send("drag-end"),
   mouseIgnore: on => ipcRenderer.send("mouse-ignore", on),
+  badgeRect: r => ipcRenderer.send("badge-rect", r),
   saveCfg: c => ipcRenderer.invoke("save-cfg", c),
   record: on => ipcRenderer.invoke("record", on),
   normalize: s => ipcRenderer.invoke("normalize", s),

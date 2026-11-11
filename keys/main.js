@@ -23,6 +23,7 @@ function loadCfg() {
     const c = JSON.parse(fs.readFileSync(CFG_FILE(), "utf8"));
     if (c && Array.isArray(c.sets) && c.sets.length) cfg = Object.assign(defaultCfg(), c);
   } catch {}
+  ensureGeneral();
   if (!cfg.sets.find(s => s.id === cfg.activeSet)) cfg.activeSet = cfg.sets[0].id;
   cfgLoaded = true;
 }
@@ -32,6 +33,9 @@ function saveCfg() {
   clearTimeout(saveT);
   saveT = setTimeout(() => { try { fs.mkdirSync(app.getPath("userData"), { recursive: true }); fs.writeFileSync(CFG_FILE(), JSON.stringify(cfg, null, 2)); } catch {} }, 300);
 }
+// "General": every key and mouse action, no labels. Always the first set, can't be edited or deleted.
+const GENERAL = { id: "general", name: "General", general: true, items: [] };
+function ensureGeneral() { cfg.sets = cfg.sets.filter(s => s.id !== "general"); cfg.sets.unshift(clone(GENERAL)); }
 const activeSet = () => cfg.sets.find(s => s.id === cfg.activeSet) || cfg.sets[0];
 
 // ---------- windows ----------
@@ -56,6 +60,7 @@ function createOverlay() {
   if (IS_MAC) overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlay.setIgnoreMouseEvents(true, { forward: true });
   overlay.loadFile(path.join(__dirname, "overlay.html"));
+  overlay.webContents.on("did-finish-load", () => overlay && overlay.webContents.setZoomFactor(cfg.scale || 1));
   overlay.once("ready-to-show", () => { if (cfg.visible) overlay.showInactive(); pushState(); });
   overlay.on("closed", () => { overlay = null; });
 }
@@ -114,6 +119,7 @@ function startHook() {
     const BTN = { 1: "Left", 2: "Right", 3: "Middle" };
     uIOhook.on("mousedown", e => {
       const b = BTN[e.button]; if (!b) return;
+      if (b === "Left" && cursorOnBadge()) { mouse = null; startDrag(); return; }   // grabbing the overlay
       mouse = { button: b, x: e.x, y: e.y, mods: modsOf(e), dragged: false, clicks: e.clicks };
     });
     const onMove = e => {
@@ -140,8 +146,9 @@ let lastEmit = { combo: "", at: 0 };
 function emit(combo, modifierOnly) {
   const set = activeSet();
   if (recording && settingsWin && !modifierOnly) { recording = false; settingsWin.webContents.send("recorded", combo); }
-  const item = modifierOnly ? null : C.findItem(set.items, combo, IS_MAC);
-  if (modifierOnly ? cfg.mode !== "all" : !C.shouldShow(cfg.mode, combo, !!item)) return;
+  const item = modifierOnly || set.general ? null : C.findItem(set.items, combo, IS_MAC);
+  const mode = set.general ? "all" : cfg.mode;
+  if (modifierOnly ? mode !== "all" : !C.shouldShow(mode, combo, !!item)) return;
   const now = Date.now();
   // scroll and repeated combos just keep the current display alive
   const repeat = combo === lastEmit.combo && now - lastEmit.at < cfg.fadeMs;
@@ -151,17 +158,33 @@ function emit(combo, modifierOnly) {
 }
 
 // ---------- dragging the overlay (done here, so the overlay never has to take focus) ----------
-let dragWin = null;
-ipcMain.on("drag-start", () => {
-  if (!overlay) return;
+// The overlay lets clicks pass through, except over its badge. Main watches where the cursor is,
+// so this doesn't depend on the window receiving mouse-move events (unreliable on some Windows PCs).
+let dragWin = null, badgeRect = null, overBadge = false;
+ipcMain.on("badge-rect", (_e, r) => { if (r && isFinite(r.x)) badgeRect = r; });
+function cursorOnBadge() {
+  if (!overlay || !badgeRect || !overlay.isVisible()) return false;
+  const c = screen.getCursorScreenPoint(), b = overlay.getBounds(), z = overlay.webContents.getZoomFactor() || 1, pad = 4;
+  const x = b.x + badgeRect.x * z, y = b.y + badgeRect.y * z, w = badgeRect.w * z, h = badgeRect.h * z;
+  return c.x >= x - pad && c.x <= x + w + pad && c.y >= y - pad && c.y <= y + h + pad;
+}
+setInterval(() => {
+  if (!overlay || dragWin) return;
+  const on = cursorOnBadge();
+  if (on !== overBadge) { overBadge = on; overlay.setIgnoreMouseEvents(!on, { forward: true }); }
+}, 50);
+function startDrag() {
+  if (!overlay || dragWin) return;
   const c = screen.getCursorScreenPoint(), b = overlay.getBounds();
-  dragWin = { dx: c.x - b.x, dy: c.y - b.y, sx: c.x, sy: c.y, moved: false, timer: setInterval(moveDrag, 16) };
-});
+  dragWin = { dx: c.x - b.x, dy: c.y - b.y, sx: c.x, sy: c.y, w: b.width, h: b.height, moved: false, timer: setInterval(moveDrag, 16) };
+}
+ipcMain.on("drag-start", startDrag);
 function moveDrag() {
   if (!dragWin || !overlay) return;
   const c = screen.getCursorScreenPoint();
   if (Math.hypot(c.x - dragWin.sx, c.y - dragWin.sy) > 4) dragWin.moved = true;
-  if (dragWin.moved) overlay.setPosition(Math.round(c.x - dragWin.dx), Math.round(c.y - dragWin.dy));
+  // setBounds with a fixed size: on Windows, setPosition can make a scaled window creep bigger
+  if (dragWin.moved) overlay.setBounds({ x: Math.round(c.x - dragWin.dx), y: Math.round(c.y - dragWin.dy), width: dragWin.w, height: dragWin.h });
 }
 function endDrag() {
   if (!dragWin) return;
@@ -169,6 +192,7 @@ function endDrag() {
   const moved = dragWin.moved; dragWin = null;
   if (moved && overlay) { const [x, y] = overlay.getPosition(); cfg.pos = { x, y }; saveCfg(); }
   else popupMenu();
+  overBadge = !cursorOnBadge(); // force the hover check to re-apply
 }
 ipcMain.on("drag-end", endDrag);   // fallback when the global hook isn't running
 ipcMain.on("mouse-ignore", (_e, ignore) => { if (overlay) overlay.setIgnoreMouseEvents(!!ignore, { forward: true }); });
@@ -177,7 +201,7 @@ ipcMain.on("mouse-ignore", (_e, ignore) => { if (overlay) overlay.setIgnoreMouse
 function menuTemplate() {
   const mk = (label, accel) => ({ label, accelerator: accel, registerAccelerator: false });
   return [
-    ...cfg.sets.map(s => ({ label: s.name, type: "radio", checked: s.id === cfg.activeSet, click: () => setActive(s.id) })),
+    ...cfg.sets.map(s => ({ label: s.general ? "General (every key, no labels)" : s.name, type: "radio", checked: s.id === cfg.activeSet, click: () => setActive(s.id) })),
     { type: "separator" },
     { label: "Show", submenu: [
       { label: "Only my listed shortcuts", type: "radio", checked: cfg.mode === "listed", click: () => setMode("listed") },
@@ -217,10 +241,11 @@ ipcMain.handle("save-cfg", (_e, next) => {
     activeSet: String(next.activeSet), mode: ["listed", "combos", "all"].includes(next.mode) ? next.mode : "combos",
     fadeMs: Math.max(600, Math.min(15000, Number(next.fadeMs) || 2200)), scale: Math.max(0.6, Math.min(2, Number(next.scale) || 1)),
   });
+  ensureGeneral();
   if (!cfg.sets.find(s => s.id === cfg.activeSet)) cfg.activeSet = cfg.sets[0].id;
   if (Boolean(next.pinned) !== cfg.pinned) setPinned(next.pinned);
   saveCfg();
-  if (overlay && oldScale !== cfg.scale) { const [x, y] = overlay.getPosition(); overlay.setBounds({ x, y, width: Math.round(BASE_W * cfg.scale), height: Math.round(BASE_H * cfg.scale) }); }
+  if (overlay && oldScale !== cfg.scale) { const [x, y] = overlay.getPosition(); overlay.setBounds({ x, y, width: Math.round(BASE_W * cfg.scale), height: Math.round(BASE_H * cfg.scale) }); overlay.webContents.setZoomFactor(cfg.scale); }
   pushState();
   return true;
 });

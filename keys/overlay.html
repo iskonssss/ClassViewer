@@ -47,7 +47,8 @@
     const set = st.cfg.sets.find(s => s.id === st.cfg.activeSet) || st.cfg.sets[0];
     $("setName").textContent = set ? set.name : "Shortcuts";
     $("modeName").textContent = MODES[st.cfg.mode] || "";
-    document.body.style.zoom = st.cfg.scale || 1;
+    $("modeName").textContent = set && set.general ? "· every key" : (MODES[st.cfg.mode] || "");
+    reportBadge();
   }
   window.keys.onState(s => { st = s; paint(); });
   window.keys.getState().then(s => { st = s; paint(); });
@@ -94,12 +95,13 @@
     row.classList.add("on");
     clearTimeout(hideT); hideT = setTimeout(() => row.classList.remove("on"), (st && st.cfg.fadeMs) || 2200);
   });
-  window.keys.onFlash(t => { const b = $("badge"); $("setName").textContent = t; b.classList.add("flash"); const long = t.length > 24; setTimeout(() => { b.classList.remove("flash"); if (long) paint(); }, long ? 4000 : 900); });
+  window.keys.onFlash(t => { const b = $("badge"); $("setName").textContent = t; b.classList.add("flash"); const long = t.length > 24; reportBadge(); setTimeout(() => { b.classList.remove("flash"); if (long) paint(); reportBadge(); }, long ? 4000 : 900); });
 
   // The window ignores the mouse except over the badge, so it never blocks clicks on your app.
   const badge = $("badge");
-  badge.addEventListener("mouseenter", () => window.keys.mouseIgnore(false));
-  badge.addEventListener("mouseleave", () => window.keys.mouseIgnore(true));
+  function reportBadge(){ requestAnimationFrame(() => { const r = badge.getBoundingClientRect(); window.keys.badgeRect({ x: r.left, y: r.top, w: r.width, h: r.height }); }); }
+  new ResizeObserver(reportBadge).observe(badge);
+  window.addEventListener("resize", reportBadge);
   badge.addEventListener("pointerdown", e => { if (e.button === 0) window.keys.dragStart(); });
   badge.addEventListener("pointerup", () => window.keys.dragEnd());
 </script>

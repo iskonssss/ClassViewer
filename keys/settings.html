@@ -101,6 +101,7 @@
       <button class="btn primary" id="addRow">+ Add shortcut</button>
     </div>
     <div class="hint">Click <b>Record</b> and press the keys (or click / drag / scroll the mouse) to fill a shortcut, or type it like <code>Ctrl+Shift+G</code>, <code>Shift+Right Drag</code>, <code>Scroll</code>. The label is optional: leave it empty to show just the keys. <code>Ctrl</code> also matches <code>Cmd</code> on a Mac (on Windows, <code>Cmd</code> means the Windows key).</div>
+    <div class="hint" id="genNote" hidden style="font-size:14px;color:var(--fg)">General shows <b>every key and every mouse action</b> (clicks, drags, scroll), with no labels. Use it for any software, or when you just want learners to see what you're pressing. It ignores the “Show” setting above, and can't be edited.</div>
     <div class="tablewrap"><table><thead><tr><th>Shortcut</th><th></th><th>What it does (optional)</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
   </section>
 </main>
@@ -141,7 +142,7 @@ function paintSets(){
   for (const s of model.sets) {
     const b = document.createElement("button"); b.className = "setbtn" + (s.id === sel ? " sel" : "");
     b.innerHTML = `<span></span><span class="n"></span>`;
-    b.children[0].textContent = s.name; b.children[1].textContent = s.items.length;
+    b.children[0].textContent = s.name; b.children[1].textContent = s.general ? "no labels" : s.items.length;
     if (s.id === model.activeSet) { const l = document.createElement("span"); l.className = "live"; l.textContent = "ON SCREEN"; b.appendChild(l); }
     b.onclick = () => { sel = s.id; stopRec(); paintAll(); };
     box.appendChild(b);
@@ -150,8 +151,11 @@ function paintSets(){
 function paintRows(){
   const s = curSet(), tb = $("rows"), q = $("search").value.trim().toLowerCase();
   $("setNameIn").value = s.name;
+  const g = !!s.general;
+  $("setNameIn").readOnly = g; $("dupSet").hidden = g; $("delSet").hidden = g; $("search").hidden = g; $("addRow").hidden = g;
+  document.querySelector(".hint").hidden = g; document.querySelector(".tablewrap").hidden = g; $("genNote").hidden = !g;
   $("useSet").disabled = s.id === model.activeSet; $("useSet").textContent = s.id === model.activeSet ? "On screen now" : "Show this set now";
-  $("delSet").disabled = model.sets.length < 2;
+  $("delSet").disabled = model.sets.filter(x => !x.general).length < 2;
   tb.innerHTML = "";
   const list = s.items.map((it, i) => [it, i]).filter(([it]) => !q || it.keys.toLowerCase().includes(q) || (it.label||"").toLowerCase().includes(q));
   if (!list.length) { tb.innerHTML = `<tr><td colspan="4" class="empty">${q ? "No shortcuts match." : "No shortcuts yet. Click “+ Add shortcut”."}</td></tr>`; return; }
@@ -186,7 +190,7 @@ $("search").addEventListener("input", paintRows);
 $("newSet").onclick = () => { const s = { id: uid(), name: "New set", items: [] }; model.sets.push(s); sel = s.id; save(); paintAll(); $("setNameIn").select(); };
 $("dupSet").onclick = () => { const c = curSet(); const s = { id: uid(), name: c.name + " (copy)", items: c.items.map(x => ({ keys: x.keys, label: x.label })) }; model.sets.push(s); sel = s.id; save(); paintAll(); };
 $("delSet").onclick = () => {
-  const c = curSet(); if (model.sets.length < 2) return;
+  const c = curSet(); if (c.general || model.sets.filter(x => !x.general).length < 2) return;
   if (!confirm(`Delete the set “${c.name}” and its ${c.items.length} shortcuts?`)) return;
   model.sets = model.sets.filter(s => s !== c); if (model.activeSet === c.id) model.activeSet = model.sets[0].id; sel = model.sets[0].id; save(); paintAll();
 };
