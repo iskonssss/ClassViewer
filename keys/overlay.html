@@ -37,7 +37,7 @@
   const MODES = { listed: "· listed only", combos: "· combos", all: "· every key" };
     function capLabel(p){
     const mac = st && st.isMac;
-    if (p === "Cmd") return mac ? "⌘ Cmd" : "Win";
+    if (p === "Cmd") return mac ? "⌘ Cmd" : "⊞ Win";
     if (p === "Alt") return mac ? "⌥ Option" : "Alt";
     if (p === "Ctrl") return mac ? "Control" : "Ctrl";
     return { ArrowUp:"↑", ArrowDown:"↓", ArrowLeft:"←", ArrowRight:"→", Escape:"Esc", Backspace:"⌫ Backspace", Enter:"Enter ⏎", Delete:"Del", Space:"Space" }[p] || p;

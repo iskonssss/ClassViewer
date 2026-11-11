@@ -90,7 +90,7 @@ function shouldShow(mode, combo, listed) {
 
 // How a canonical part is drawn on a keycap.
 function capLabel(part, isMac) {
-  if (part === "Cmd") return isMac ? "⌘ Cmd" : "Win";
+  if (part === "Cmd") return isMac ? "⌘ Cmd" : "⊞ Win";
   if (part === "Alt") return isMac ? "⌥ Option" : "Alt";
   if (part === "Ctrl") return isMac ? "Control" : "Ctrl";
   return { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", Escape: "Esc", Backspace: "⌫ Backspace", Enter: "Enter ⏎", Delete: "Del" }[part] || part;
