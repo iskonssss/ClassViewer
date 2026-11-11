@@ -94,7 +94,7 @@
     row.classList.add("on");
     clearTimeout(hideT); hideT = setTimeout(() => row.classList.remove("on"), (st && st.cfg.fadeMs) || 2200);
   });
-  window.keys.onFlash(t => { const b = $("badge"); $("setName").textContent = t; b.classList.add("flash"); setTimeout(() => b.classList.remove("flash"), 900); });
+  window.keys.onFlash(t => { const b = $("badge"); $("setName").textContent = t; b.classList.add("flash"); const long = t.length > 24; setTimeout(() => { b.classList.remove("flash"); if (long) paint(); }, long ? 4000 : 900); });
 
   // The window ignores the mouse except over the badge, so it never blocks clicks on your app.
   const badge = $("badge");

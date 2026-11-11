@@ -63,6 +63,8 @@
   <h1>ClassView Keys</h1><span class="ver" id="ver"></span>
   <div class="spacer"></div>
   <span class="saved" id="saved"></span>
+  <span class="saved">Closing this window keeps the overlay running.</span>
+  <button class="btn danger" id="quit">Quit ClassView Keys</button>
 </header>
 <div>
   <div class="banner" id="perm" hidden>
@@ -199,6 +201,7 @@ $("reset").onclick = async () => {
   for (const s of d) model.sets.push({ id: uid(), name: s.name + " (starter)", items: s.items });
   save(); paintAll();
 };
+$("quit").onclick = async () => { clearTimeout(saveT); await K.saveCfg(model); K.quit(); };
 $("permBtn").onclick = () => K.askPermission();
 $("relaunch").onclick = () => K.relaunch();
 

@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld("keys", {
   askPermission: () => ipcRenderer.invoke("ask-permission"),
   relaunch: () => ipcRenderer.invoke("relaunch"),
   startupSet: on => ipcRenderer.invoke("startup-set", on),
+  quit: () => ipcRenderer.invoke("quit"),
 });

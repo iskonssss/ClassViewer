@@ -8,7 +8,7 @@ const DEFAULTS = require("./defaults");
 
 const IS_MAC = process.platform === "darwin";
 const TEST = process.env.CLASSVIEW_KEYS_TEST === "1";
-if (!app.requestSingleInstanceLock()) app.quit();
+if (!app.requestSingleInstanceLock()) { app.exit(0); }
 if (process.env.CLASSVIEW_KEYS_USERDATA) app.setPath("userData", process.env.CLASSVIEW_KEYS_USERDATA);
 
 // ---------- settings, saved as JSON in the app's data folder ----------
@@ -17,15 +17,17 @@ const clone = o => JSON.parse(JSON.stringify(o));
 function defaultCfg() {
   return { activeSet: DEFAULTS[0].id, mode: "combos", fadeMs: 2200, scale: 1, pinned: true, visible: true, pos: null, sets: clone(DEFAULTS) };
 }
-let cfg = defaultCfg();
+let cfg = defaultCfg(), cfgLoaded = false;
 function loadCfg() {
   try {
     const c = JSON.parse(fs.readFileSync(CFG_FILE(), "utf8"));
     if (c && Array.isArray(c.sets) && c.sets.length) cfg = Object.assign(defaultCfg(), c);
   } catch {}
   if (!cfg.sets.find(s => s.id === cfg.activeSet)) cfg.activeSet = cfg.sets[0].id;
+  cfgLoaded = true;
 }
 let saveT = null;
+function saveNow() { clearTimeout(saveT); fs.mkdirSync(app.getPath("userData"), { recursive: true }); fs.writeFileSync(CFG_FILE(), JSON.stringify(cfg, null, 2)); }
 function saveCfg() {
   clearTimeout(saveT);
   saveT = setTimeout(() => { try { fs.mkdirSync(app.getPath("userData"), { recursive: true }); fs.writeFileSync(CFG_FILE(), JSON.stringify(cfg, null, 2)); } catch {} }, 300);
@@ -33,7 +35,7 @@ function saveCfg() {
 const activeSet = () => cfg.sets.find(s => s.id === cfg.activeSet) || cfg.sets[0];
 
 // ---------- windows ----------
-let overlay = null, settingsWin = null, tray = null;
+let overlay = null, settingsWin = null, tray = null, closedOnce = false;
 const BASE_W = 900, BASE_H = 150;
 
 function createOverlay() {
@@ -66,7 +68,7 @@ function openSettings() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false },
   });
   settingsWin.loadFile(path.join(__dirname, "settings.html"));
-  settingsWin.on("closed", () => { settingsWin = null; recording = false; });
+  settingsWin.on("closed", () => { settingsWin = null; recording = false; if (!closedOnce) { closedOnce = true; flash("Still running · click here to quit"); } });
 }
 
 // Everything the windows need to draw themselves
@@ -187,7 +189,7 @@ function menuTemplate() {
     { ...mk("Next shortcut set", IS_MAC ? "Cmd+Alt+N" : "Ctrl+Alt+N"), click: nextSet },
     { type: "separator" },
     { label: "Edit shortcuts and settings…", click: openSettings },
-    { label: "Quit ClassView Keys", click: () => app.quit() },
+    { label: "Quit ClassView Keys", click: quitApp },
   ];
 }
 function popupMenu() { Menu.buildFromTemplate(menuTemplate()).popup({ window: overlay || undefined }); }
@@ -265,4 +267,14 @@ app.whenReady().then(() => {
 });
 app.on("second-instance", openSettings);
 app.on("window-all-closed", e => { /* keep running in the tray */ });
-app.on("will-quit", () => { try { globalShortcut.unregisterAll(); } catch {} try { require("uiohook-napi").uIOhook.stop(); } catch {} });
+// Quit for real, straight away. Ending the process also removes the keyboard/mouse hook, so we don't
+// wait on the hook to stop (that wait is what can leave the app stuck in Task Manager).
+function quitApp() {
+  try { if (cfgLoaded) saveNow(); } catch {}
+  try { globalShortcut.unregisterAll(); } catch {}
+  try { tray && tray.destroy(); } catch {}
+  app.exit(0);
+  setTimeout(() => process.exit(0), 500);
+}
+ipcMain.handle("quit", () => quitApp());
+app.on("before-quit", e => { e.preventDefault(); quitApp(); });
