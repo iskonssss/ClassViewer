@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>ClassView Keys</title>
+<style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}
+  #wrap{position:absolute;left:8px;bottom:8px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+  .badge{display:inline-flex;align-items:center;gap:7px;background:rgba(16,22,27,.82);color:#fff;font-size:13px;font-weight:700;padding:6px 11px 6px 9px;border-radius:999px;cursor:grab;box-shadow:0 2px 10px rgba(0,0,0,.3);opacity:.8;transition:opacity .2s}
+  .badge:hover{opacity:1}
+  .badge .dot{width:8px;height:8px;border-radius:50%;background:#23b5a5}
+  .badge .mode{font-weight:500;opacity:.75}
+  .badge .chev{opacity:.7;font-size:11px}
+  .badge.flash{background:#0f8f84;opacity:1}
+  #row{display:flex;align-items:center;gap:10px;opacity:0;transform:translateY(6px);transition:opacity .35s,transform .35s}
+  #row.on{opacity:1;transform:none;transition:opacity .08s,transform .08s}
+  .cap{font-size:36px;font-weight:600;color:#111;line-height:1;padding:12px 18px 13px;min-width:30px;text-align:center;white-space:nowrap;border-radius:9px;
+       background:linear-gradient(#f2f2f2,#c9c9c9 55%,#a9a9a9);border:2px solid #6b6b6b;box-shadow:inset 0 2px 0 #fff,inset 0 -3px 0 rgba(0,0,0,.18),0 4px 10px rgba(0,0,0,.35)}
+  .plus{font-size:40px;font-weight:800;color:#111;text-shadow:0 0 3px #fff,0 0 6px #fff,0 0 2px #fff}
+  .label{font-size:32px;font-weight:500;color:#111;background:#fff;border:3px solid #35a99b;border-radius:12px;padding:10px 16px;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+  .label .eq{color:#111;margin-right:6px}
+  .count{font-size:20px;font-weight:800;color:#fff;background:#35a99b;border-radius:999px;padding:4px 10px}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="row"></div>
+  <div class="badge hit" id="badge" title="Drag to move · click for shortcut sets and options"><span class="dot"></span><span id="setName">Shortcuts</span><span class="mode" id="modeName"></span><span class="chev">▾</span></div>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  let st = null, hideT = null, count = 1, last = "";
+  const MODES = { listed: "· listed only", combos: "· combos", all: "· every key" };
+    function capLabel(p){
+    const mac = st && st.isMac;
+    if (p === "Cmd") return mac ? "⌘ Cmd" : "Win";
+    if (p === "Alt") return mac ? "⌥ Option" : "Alt";
+    if (p === "Ctrl") return mac ? "Control" : "Ctrl";
+    return { ArrowUp:"↑", ArrowDown:"↓", ArrowLeft:"←", ArrowRight:"→", Escape:"Esc", Backspace:"⌫ Backspace", Enter:"Enter ⏎", Delete:"Del", Space:"Space" }[p] || p;
+  }
+  function paint(){
+    if (!st) return;
+    const set = st.cfg.sets.find(s => s.id === st.cfg.activeSet) || st.cfg.sets[0];
+    $("setName").textContent = set ? set.name : "Shortcuts";
+    $("modeName").textContent = MODES[st.cfg.mode] || "";
+    document.body.style.zoom = st.cfg.scale || 1;
+  }
+  window.keys.onState(s => { st = s; paint(); });
+  window.keys.getState().then(s => { st = s; paint(); });
+
+  // split "Ctrl+Shift+=" into parts, keeping a "+" key intact
+  function parts(combo){ return combo.split("+").filter(Boolean); }
+  window.keys.onShow(m => {
+    const row = $("row");
+    count = m.repeat && m.combo === last ? count + 1 : 1; last = m.combo;
+    if (!(m.repeat && row.classList.contains("on") && count > 1 && row.dataset.combo === m.combo)) {
+      row.innerHTML = ""; row.dataset.combo = m.combo;
+      parts(m.combo).forEach((p, i) => {
+        if (i) { const s = document.createElement("span"); s.className = "plus"; s.textContent = "+"; row.appendChild(s); }
+        const c = document.createElement("span"); c.className = "cap"; c.textContent = capLabel(p); row.appendChild(c);
+      });
+      if (m.label) { const l = document.createElement("span"); l.className = "label"; l.innerHTML = '<span class="eq">=</span>'; l.appendChild(document.createTextNode(m.label)); row.appendChild(l); }
+    }
+    let cnt = row.querySelector(".count");
+    if (count > 1 && !m.combo.endsWith("Scroll")) { if (!cnt) { cnt = document.createElement("span"); cnt.className = "count"; row.appendChild(cnt); } cnt.textContent = "×" + count; }
+    row.classList.add("on");
+    clearTimeout(hideT); hideT = setTimeout(() => row.classList.remove("on"), (st && st.cfg.fadeMs) || 2200);
+  });
+  window.keys.onFlash(t => { const b = $("badge"); $("setName").textContent = t; b.classList.add("flash"); setTimeout(() => b.classList.remove("flash"), 900); });
+
+  // The window ignores the mouse except over the badge, so it never blocks clicks on your app.
+  const badge = $("badge");
+  badge.addEventListener("mouseenter", () => window.keys.mouseIgnore(false));
+  badge.addEventListener("mouseleave", () => window.keys.mouseIgnore(true));
+  badge.addEventListener("pointerdown", e => { if (e.button === 0) window.keys.dragStart(); });
+  badge.addEventListener("pointerup", () => window.keys.dragEnd());
+</script>
+</body>
+</html>

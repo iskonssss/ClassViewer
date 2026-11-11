@@ -1,0 +1,59 @@
+{
+  "name": "classview-keys",
+  "productName": "ClassView Keys",
+  "version": "0.1.0",
+  "description": "Shows the keys and mouse buttons the trainer presses, with shortcut labels",
+  "author": "Forgecraft Pte Ltd",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "uiohook-napi": "1.5.4"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.forgecraft.classview.keys",
+    "productName": "ClassView Keys",
+    "files": [
+      "main.js",
+      "preload.js",
+      "combo.js",
+      "defaults.js",
+      "overlay.html",
+      "settings.html",
+      "icon.png",
+      "trayTemplate.png",
+      "trayTemplate@2x.png",
+      "node_modules/uiohook-napi/**/*",
+      "node_modules/node-gyp-build/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/uiohook-napi/**/*"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "artifactName": "ClassView-Keys-Windows.exe",
+      "signAndEditExecutable": true,
+      "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "ClassView-Keys-Windows.exe"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "identity": null,
+      "icon": "build/icon.png",
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    },
+    "publish": null,
+    "icon": "build/icon.png"
+  }
+}

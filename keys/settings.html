@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>ClassView Keys — Settings</title>
+<style>
+  :root{--bg:#f4f6f7;--surface:#fff;--fg:#14202a;--muted:#5d6b75;--line:#d7dee3;--accent:#0f8f84;--accent-ink:#fff;--bad:#c2372f;--warn:#fff4d6}
+  @media (prefers-color-scheme: dark){:root{--bg:#11171c;--surface:#1a232a;--fg:#e8eef2;--muted:#9aa9b3;--line:#2c3a44;--accent:#23b5a5;--accent-ink:#06211e;--bad:#ff6b61;--warn:#3a3016}}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  body{display:grid;grid-template-rows:auto auto 1fr auto;height:100vh}
+  header{display:flex;align-items:center;gap:12px;padding:14px 18px 8px}
+  header h1{font-size:20px;margin:0}
+  header .ver{color:var(--muted);font-size:12px}
+  .spacer{flex:1}
+  .banner{margin:0 18px 8px;padding:10px 14px;border-radius:10px;background:var(--warn);border:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [hidden]{display:none!important}
+  .opts{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:8px 18px 12px;border-bottom:1px solid var(--line)}
+  .opts label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{border:0;border-right:1px solid var(--line);background:var(--surface);color:var(--fg);padding:7px 12px;font:inherit;cursor:pointer}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--accent);color:var(--accent-ink);font-weight:700}
+  select,input[type=text]{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+  input[type=text]:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .btn{font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+  .btn.danger{color:var(--bad)}
+  .btn.rec{min-width:86px}
+  .btn.rec.on{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:700;animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.7}}
+  main{display:grid;grid-template-columns:230px 1fr;min-height:0}
+  aside{border-right:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:6px;overflow:auto}
+  .setbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;font:inherit;color:var(--fg);background:transparent;border:1px solid transparent;border-radius:9px;padding:9px 10px;cursor:pointer}
+  .setbtn:hover{background:var(--surface)}
+  .setbtn.sel{background:var(--surface);border-color:var(--line);font-weight:700}
+  .setbtn .live{margin-left:auto;font-size:11px;font-weight:700;color:var(--accent-ink);background:var(--accent);border-radius:999px;padding:2px 7px}
+  .setbtn .n{color:var(--muted);font-weight:400;font-size:12px}
+  section{display:flex;flex-direction:column;min-height:0}
+  .edhead{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 16px}
+  .edhead input.name{font-size:17px;font-weight:700;width:16em}
+  .hint{color:var(--muted);font-size:12.5px;padding:0 16px 8px}
+  .hint code{background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:0 4px}
+  .tablewrap{overflow:auto;padding:0 16px 16px;min-height:0}
+  table{width:100%;border-collapse:collapse}
+  th{position:sticky;top:0;background:var(--bg);text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 6px;z-index:1}
+  td{padding:4px 6px;border-top:1px solid var(--line);vertical-align:middle}
+  td input[type=text]{width:100%}
+  td.k{width:36%}
+  td.r{width:1%}
+  td.x{width:1%}
+  .keyin{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  .bad{outline:2px solid var(--bad)!important}
+  footer{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 18px;border-top:1px solid var(--line)}
+  .saved{color:var(--muted);font-size:12px}
+  .empty{color:var(--muted);padding:24px 6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>ClassView Keys</h1><span class="ver" id="ver"></span>
+  <div class="spacer"></div>
+  <span class="saved" id="saved"></span>
+</header>
+<div>
+  <div class="banner" id="perm" hidden>
+    <b>Allow ClassView Keys to see your keyboard and mouse.</b>
+    <span>On a Mac: System Settings → Privacy &amp; Security → Accessibility → turn on ClassView Keys. Then click Restart.</span>
+    <button class="btn primary" id="permBtn">Open settings</button><button class="btn" id="relaunch">Restart</button>
+  </div>
+  <div class="banner" id="hookErr" hidden></div>
+  <div class="opts">
+    <label>Show <span class="seg" id="mode">
+      <button data-m="listed" title="Only keys and clicks that are in the shortcut set">Listed only</button>
+      <button data-m="combos" title="Listed shortcuts, plus combos with Ctrl/Alt/Cmd and special keys. Normal typing stays hidden.">Shortcuts + combos</button>
+      <button data-m="all" title="Every key and every click, including typing">Every key</button>
+    </span></label>
+    <label>Stays for <select id="fade"><option value="1200">1.2 s</option><option value="2200">2 s</option><option value="3500">3.5 s</option><option value="5000">5 s</option><option value="8000">8 s</option></select></label>
+    <label>Size <select id="scale"><option value="0.6">Small</option><option value="0.8">Medium</option><option value="1">Large</option><option value="1.3">Extra large</option><option value="1.6">Huge</option></select></label>
+    <label><input type="checkbox" id="pinned"> Keep on top</label>
+    <label><input type="checkbox" id="startup"> Start with my computer</label>
+  </div>
+</div>
+<main>
+  <aside>
+    <div id="sets"></div>
+    <button class="btn" id="newSet">+ New set</button>
+  </aside>
+  <section>
+    <div class="edhead">
+      <input type="text" class="name" id="setNameIn" aria-label="Set name">
+      <button class="btn primary" id="useSet">Show this set now</button>
+      <button class="btn" id="dupSet">Duplicate</button>
+      <button class="btn danger" id="delSet">Delete set</button>
+      <div class="spacer"></div>
+      <input type="text" id="search" placeholder="Search…" style="width:12em">
+      <button class="btn primary" id="addRow">+ Add shortcut</button>
+    </div>
+    <div class="hint">Click <b>Record</b> and press the keys (or click / drag / scroll the mouse) to fill a shortcut, or type it like <code>Ctrl+Shift+G</code>, <code>Shift+Right Drag</code>, <code>Scroll</code>. The label is optional: leave it empty to show just the keys. <code>Ctrl</code> also matches <code>Cmd</code> on a Mac (on Windows, <code>Cmd</code> means the Windows key).</div>
+    <div class="tablewrap"><table><thead><tr><th>Shortcut</th><th></th><th>What it does (optional)</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+</main>
+<footer>
+  <button class="btn" id="imp">Import…</button>
+  <button class="btn" id="exp">Export…</button>
+  <button class="btn" id="reset">Add starter sets back</button>
+  <div class="spacer"></div>
+  <span class="saved">Overlay: click its badge to switch sets · <span id="hk"></span></span>
+</footer>
+<script>
+const $ = id => document.getElementById(id);
+const K = window.keys;
+let model = null, st = null, sel = null, recRow = null, saveT = null;
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+function curSet(){ return model.sets.find(s => s.id === sel) || model.sets[0]; }
+function save(){
+  $("saved").textContent = "Saving…";
+  clearTimeout(saveT);
+  saveT = setTimeout(async () => { await K.saveCfg(model); $("saved").textContent = "Saved"; }, 350);
+}
+
+function paintOpts(){
+  for (const b of $("mode").children) b.classList.toggle("on", b.dataset.m === model.mode);
+  $("fade").value = String(model.fadeMs); if (!$("fade").value) { const o = new Option((model.fadeMs/1000)+" s", model.fadeMs); $("fade").add(o); $("fade").value = String(model.fadeMs); }
+  $("scale").value = String(model.scale); if (!$("scale").value) $("scale").value = "1";
+  $("pinned").checked = !!model.pinned;
+  $("startup").checked = !!(st && st.startup);
+  $("perm").hidden = !(st && st.isMac && !st.hookOk);
+  const he = $("hookErr");
+  he.hidden = !(st && !st.hookOk && !(st.isMac && !st.trusted) && st.hookErr && st.hookErr !== "permission");
+  if (!he.hidden) he.textContent = "Couldn't start reading the keyboard and mouse: " + st.hookErr;
+  $("hk").textContent = (st && st.isMac ? "⌘⌥K" : "Ctrl+Alt+K") + " hide/show · " + (st && st.isMac ? "⌘⌥N" : "Ctrl+Alt+N") + " next set";
+}
+function paintSets(){
+  const box = $("sets"); box.innerHTML = "";
+  for (const s of model.sets) {
+    const b = document.createElement("button"); b.className = "setbtn" + (s.id === sel ? " sel" : "");
+    b.innerHTML = `<span></span><span class="n"></span>`;
+    b.children[0].textContent = s.name; b.children[1].textContent = s.items.length;
+    if (s.id === model.activeSet) { const l = document.createElement("span"); l.className = "live"; l.textContent = "ON SCREEN"; b.appendChild(l); }
+    b.onclick = () => { sel = s.id; stopRec(); paintAll(); };
+    box.appendChild(b);
+  }
+}
+function paintRows(){
+  const s = curSet(), tb = $("rows"), q = $("search").value.trim().toLowerCase();
+  $("setNameIn").value = s.name;
+  $("useSet").disabled = s.id === model.activeSet; $("useSet").textContent = s.id === model.activeSet ? "On screen now" : "Show this set now";
+  $("delSet").disabled = model.sets.length < 2;
+  tb.innerHTML = "";
+  const list = s.items.map((it, i) => [it, i]).filter(([it]) => !q || it.keys.toLowerCase().includes(q) || (it.label||"").toLowerCase().includes(q));
+  if (!list.length) { tb.innerHTML = `<tr><td colspan="4" class="empty">${q ? "No shortcuts match." : "No shortcuts yet. Click “+ Add shortcut”."}</td></tr>`; return; }
+  for (const [it, i] of list) tb.appendChild(row(s, it, i));
+}
+function row(s, it, i){
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td class="k"><input type="text" class="keyin" placeholder="e.g. Ctrl+G"></td><td class="r"><button class="btn rec">Record</button></td><td><input type="text" class="lab" placeholder="(leave empty to show just the keys)"></td><td class="x"><button class="btn danger" title="Delete this shortcut" aria-label="Delete">✕</button></td>`;
+  const kin = tr.querySelector(".keyin"), lab = tr.querySelector(".lab"), rec = tr.querySelector(".rec"), del = tr.querySelector(".danger");
+  kin.value = it.keys; lab.value = it.label || "";
+  kin.addEventListener("input", () => { it.keys = kin.value; save(); });
+  kin.addEventListener("change", async () => { const n = await K.normalize(kin.value); kin.classList.toggle("bad", !!kin.value.trim() && !n); if (n) { kin.value = n; it.keys = n; save(); } });
+  lab.addEventListener("input", () => { it.label = lab.value; save(); });
+  rec.onclick = () => { if (recRow && recRow.it === it) { stopRec(); return; } stopRec(); recRow = { it, kin, rec }; rec.classList.add("on"); rec.textContent = "Press…"; K.record(true); };
+  del.onclick = () => { s.items.splice(i, 1); stopRec(); save(); paintAll(); };
+  if (it._new) { delete it._new; setTimeout(() => kin.focus(), 0); }
+  return tr;
+}
+function stopRec(){ if (!recRow) return; recRow.rec.classList.remove("on"); recRow.rec.textContent = "Record"; recRow = null; K.record(false); }
+K.onRecorded(combo => { if (!recRow) return; recRow.kin.value = combo; recRow.it.keys = combo; const r = recRow; stopRec(); save(); r.kin.closest("tr").querySelector(".lab").focus(); });
+function paintAll(){ paintOpts(); paintSets(); paintRows(); }
+
+$("mode").onclick = e => { const m = e.target.dataset && e.target.dataset.m; if (m) { model.mode = m; save(); paintOpts(); } };
+$("fade").onchange = () => { model.fadeMs = Number($("fade").value); save(); };
+$("scale").onchange = () => { model.scale = Number($("scale").value); save(); };
+$("pinned").onchange = () => { model.pinned = $("pinned").checked; save(); };
+$("startup").onchange = async () => { $("startup").checked = await K.startupSet($("startup").checked); };
+$("setNameIn").addEventListener("input", () => { curSet().name = $("setNameIn").value || "Untitled"; save(); paintSets(); });
+$("useSet").onclick = () => { model.activeSet = curSet().id; save(); paintAll(); };
+$("addRow").onclick = () => { $("search").value = ""; curSet().items.unshift({ keys: "", label: "", _new: true }); save(); paintAll(); };
+$("search").addEventListener("input", paintRows);
+$("newSet").onclick = () => { const s = { id: uid(), name: "New set", items: [] }; model.sets.push(s); sel = s.id; save(); paintAll(); $("setNameIn").select(); };
+$("dupSet").onclick = () => { const c = curSet(); const s = { id: uid(), name: c.name + " (copy)", items: c.items.map(x => ({ keys: x.keys, label: x.label })) }; model.sets.push(s); sel = s.id; save(); paintAll(); };
+$("delSet").onclick = () => {
+  const c = curSet(); if (model.sets.length < 2) return;
+  if (!confirm(`Delete the set “${c.name}” and its ${c.items.length} shortcuts?`)) return;
+  model.sets = model.sets.filter(s => s !== c); if (model.activeSet === c.id) model.activeSet = model.sets[0].id; sel = model.sets[0].id; save(); paintAll();
+};
+$("exp").onclick = async () => { await K.saveCfg(model); K.exportSets(); };
+$("imp").onclick = async () => {
+  const sets = await K.importSets(); if (!sets) return;
+  for (const s of sets) model.sets.push({ id: uid(), name: String(s.name || "Imported"), items: (s.items || []).map(x => ({ keys: String(x.keys || ""), label: String(x.label || "") })) });
+  save(); paintAll();
+};
+$("reset").onclick = async () => {
+  const d = await K.defaults();
+  for (const s of d) model.sets.push({ id: uid(), name: s.name + " (starter)", items: s.items });
+  save(); paintAll();
+};
+$("permBtn").onclick = () => K.askPermission();
+$("relaunch").onclick = () => K.relaunch();
+
+K.onState(s => {
+  st = s;
+  if (!model) return;
+  // switched from the overlay or tray: take those settings, keep any edits in progress
+  model.activeSet = s.cfg.activeSet; model.mode = s.cfg.mode; model.pinned = s.cfg.pinned;
+  paintOpts(); paintSets(); if (document.activeElement && document.activeElement.tagName === "INPUT") return; paintRows();
+});
+K.getState().then(s => {
+  st = s; model = JSON.parse(JSON.stringify(s.cfg)); sel = model.activeSet;
+  $("ver").textContent = "v" + s.version;
+  paintAll();
+});
+</script>
+</body>
+</html>
