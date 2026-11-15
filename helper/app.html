@@ -220,16 +220,7 @@ async function join(){
   setTimeout(() => H.minimize(), 600);
   setStatus("wait", "Connecting to your trainer…");
   paintCtl();
-  peer = new Peer(undefined, Object.assign({ debug:1 }, env.peer || {}));
-  peer.on("open", () => { connect(); setTimeout(() => syncMonitors(), 800); });
-  peer.on("connection", c => c.close()); // only we connect out; nobody can connect in
-  peer.on("error", ex => {
-    if (linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
-    if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
-    else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
-    retry();
-  });
-  peer.on("disconnected", () => { if (!leaving) setTimeout(()=>{ try{ peer.reconnect(); }catch{} }, 1500); });
+  makePeer();
 }
 function jErr(m){ $("jErr").textContent = m; $("jErr").hidden = false; }
 function prepStream(){
@@ -239,12 +230,49 @@ function prepStream(){
 }
 function retry(){ clearTimeout(retryT); if (!leaving) retryT = setTimeout(connect, 3000); }
 function linkUp(){ return !!(conn && conn.open && Date.now() - lastHeard < 20000); }
+  // ----- self-healing: if we can't reach the trainer for a while, start over with a fresh connection -----
+  // (covers wifi drops, laptop sleep, starting before wifi is up, and the class server forgetting us)
+  function makePeer(){
+    const p = peer = new Peer(undefined, Object.assign({ debug:1 }, env.peer || {}));
+    p.on("open", () => { if (p !== peer) return; connect(); setTimeout(() => syncMonitors(), 800); });
+    p.on("connection", c => c.close()); // only we connect out; nobody can connect in
+    p.on("error", ex => {
+      if (p !== peer || linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
+      if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
+      else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
+      retry();
+    });
+    p.on("disconnected", () => { if (p !== peer || leaving) return; setTimeout(()=>{ try{ if (p === peer && !p.destroyed && p.disconnected) p.reconnect(); }catch{} }, 1500); });
+  }
+  let downSince = 0, lastRebuild = Date.now(), connAt = 0;
+  function rebuildPeer(){
+    if (leaving || !stream) return;
+    lastRebuild = Date.now(); downSince = 0;
+    clearTimeout(retryT);
+    try { conn && conn.close(); } catch {} try { call && call.close(); } catch {}
+    conn = null; call = null;
+    try { for (const c of monCalls.values()) c.close(); monCalls.clear(); } catch {}
+    const old = peer; peer = null; try { old && old.destroy(); } catch {}
+    setStatus("wait","Reconnecting to your trainer…");
+    makePeer();
+  }
+  setInterval(() => {
+    if (leaving || !peer || !stream) return;
+    if (linkUp()) { downSince = 0; return; }
+    const now = Date.now();
+    if (!downSince) downSince = now;
+    const down = now - downSince, sinceRebuild = now - lastRebuild;
+    if (peer.destroyed && sinceRebuild > 4000) return rebuildPeer();           // the old connection is dead for good
+    if (down > 15000 && sinceRebuild > 30000) return rebuildPeer();           // still cut off after 15 s: start fresh
+    if (peer.open && !peer.disconnected && (!conn || !conn.open) && now - connAt > 10000) connect();  // nudge a stalled attempt
+  }, 5000);
 function connect(){
   if (leaving || !peer || peer.destroyed) return;
   if (linkUp()) return;
-  if (peer.disconnected) { try{ peer.reconnect(); }catch{} return; }
+  if (peer.disconnected) { try{ peer.reconnect(); }catch{} retry(); return; }
   try { conn && conn.close(); } catch {}
   try { call && call.close(); } catch {}
+  connAt = Date.now();
   conn = peer.connect(trainerId, { reliable:true, metadata: info() });
   conn.on("open", () => { send(Object.assign({ type:"hello" }, info())); startCall(); });
   lastHeard = Date.now();
@@ -325,6 +353,7 @@ function onData(m){
     }
     case "point": if (typeof m.x === "number" && typeof m.y === "number") H.point(m.x, m.y); break;
     case "monitors": if (Array.isArray(m.ids)) syncMonitors(m.ids, m.reset); break;
+    case "rejoin": setTimeout(rebuildPeer, 200 + Math.random() * 2500); break; // spread out, so 20 laptops don't all hit the server at once
   }
 }
 async function grant(){

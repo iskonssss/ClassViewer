@@ -267,6 +267,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
       <label class="hint" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="tSound" checked> Sound on stuck</label>
       <button class="btn" id="tShowJoin">Show join code</button>
       <button class="btn" id="tSecond">Second screen</button>
+      <button class="btn" id="tReconnect" title="Refresh every learner's connection. Use it when screens freeze or keep dropping.">Reconnect all</button>
       <button class="btn" id="tCopyLink">Copy join link</button>
       <button class="btn" id="tNew">New class</button>
     </div>
@@ -432,16 +433,7 @@ function startLearnerView(code){
     $("lPreview").srcObject = stream;
     history.replaceState(null,"","?class="+c+extraParams());
     setStatus("wait","Connecting to your trainer…");
-    peer = new Peer(undefined, peerOptions());
-    peer.on("open", () => { connect(); setTimeout(() => syncMonitors(), 800); });
-    peer.on("connection", c2 => c2.close());
-    peer.on("error", ex => {
-      if (linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
-      if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
-      else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
-      retry();
-    });
-    peer.on("disconnected", () => { if (!leaving) setTimeout(()=>{ try{ peer.reconnect(); }catch{} }, 1500); });
+    makePeer();
   });
   function err(m){ $("lErr").textContent=m; $("lErr").hidden=false; }
 
@@ -456,12 +448,49 @@ function startLearnerView(code){
   }
   function retry(){ clearTimeout(retryT); if (!leaving) retryT = setTimeout(connect, 3000); }
   function linkUp(){ return !!(conn && conn.open && Date.now() - lastHeard < 20000); }
+    // ----- self-healing: if we can't reach the trainer for a while, start over with a fresh connection -----
+    // (covers wifi drops, laptop sleep, starting before wifi is up, and the class server forgetting us)
+    function makePeer(){
+      const p = peer = new Peer(undefined, peerOptions());
+      p.on("open", () => { if (p !== peer) return; connect(); setTimeout(() => syncMonitors(), 800); });
+      p.on("connection", c => c.close()); // only we connect out; nobody can connect in
+      p.on("error", ex => {
+        if (p !== peer || linkUp()) return; // the class server blinked, but our direct link to the trainer is still fine
+        if (ex.type === "peer-unavailable") setStatus("wait","Waiting for your trainer to start the class…");
+        else setStatus("off","Connection problem (" + ex.type + "). Retrying…");
+        retry();
+      });
+      p.on("disconnected", () => { if (p !== peer || leaving) return; setTimeout(()=>{ try{ if (p === peer && !p.destroyed && p.disconnected) p.reconnect(); }catch{} }, 1500); });
+    }
+    let downSince = 0, lastRebuild = Date.now(), connAt = 0;
+    function rebuildPeer(){
+      if (leaving || !stream) return;
+      lastRebuild = Date.now(); downSince = 0;
+      clearTimeout(retryT);
+      try { conn && conn.close(); } catch {} try { call && call.close(); } catch {}
+      conn = null; call = null;
+      try { for (const c of monCalls.values()) c.close(); monCalls.clear(); } catch {}
+      const old = peer; peer = null; try { old && old.destroy(); } catch {}
+      setStatus("wait","Reconnecting to your trainer…");
+      makePeer();
+    }
+    setInterval(() => {
+      if (leaving || !peer || !stream) return;
+      if (linkUp()) { downSince = 0; return; }
+      const now = Date.now();
+      if (!downSince) downSince = now;
+      const down = now - downSince, sinceRebuild = now - lastRebuild;
+      if (peer.destroyed && sinceRebuild > 4000) return rebuildPeer();           // the old connection is dead for good
+      if (down > 15000 && sinceRebuild > 30000) return rebuildPeer();           // still cut off after 15 s: start fresh
+      if (peer.open && !peer.disconnected && (!conn || !conn.open) && now - connAt > 10000) connect();  // nudge a stalled attempt
+    }, 5000);
   function connect(){
     if (leaving || !peer || peer.destroyed) return;
     if (linkUp()) return;
-    if (peer.disconnected) { try { peer.reconnect(); } catch {} return; }
+    if (peer.disconnected) { try { peer.reconnect(); } catch {} retry(); return; }
     try { conn && conn.close(); } catch {}
     try { call && call.close(); } catch {}
+    connAt = Date.now();
     conn = peer.connect(trainerId, { reliable:true, metadata: info() });
     conn.on("open", () => { send({ type:"hello", ...info() }); startCall(); });
     lastHeard = Date.now();
@@ -529,6 +558,7 @@ function startLearnerView(code){
     if (m.type==="eyes") setEyes(!!m.on, m.text);
     if (m.type==="point" && typeof m.x==="number" && typeof m.y==="number") showPoint(m.x, m.y);
     if (m.type==="monitors" && Array.isArray(m.ids)) syncMonitors(m.ids, m.reset);
+    if (m.type==="rejoin") setTimeout(rebuildPeer, 200 + Math.random() * 2500);
   }
   // ----- "Eyes on me" -----
   function setEyes(on, text){
@@ -656,7 +686,7 @@ function startTrainer(MONITOR){
   if (MONITOR) {
     document.body.classList.add("monitor");
     $("tMonNote").hidden = false;
-    for (const id of ["tEyes","tEyesMsg","tNew","tCopyLink","tSecond","tQuality","oCtl","oPoint","oHelped"]) $(id).hidden = true;
+    for (const id of ["tEyes","tEyesMsg","tNew","tCopyLink","tSecond","tReconnect","tQuality","oCtl","oPoint","oHelped"]) $(id).hidden = true;
     document.querySelector('label[for="tQuality"]').hidden = true;
     document.querySelector(".layoutbar").hidden = true;
     document.title = "ClassView second screen";
@@ -783,6 +813,16 @@ function startTrainer(MONITOR){
   function monitorUrl(){ const u=new URL(location.href); u.hash=""; u.search="?monitor&class="+code+"&key="+monitorKey+extraParams(); return u.toString(); }
   function paintSecond(){ if ($("second").hidden) return; $("sUrl").textContent = baseUrl(); $("sCode").textContent = code; $("sKey").textContent = monitorKey; $("sCount").textContent = monitors.size ? monitors.size + " second screen" + (monitors.size>1?"s":"") + " connected." : "No second screen connected yet."; }
   $("tSecond").onclick = () => { $("second").hidden = false; paintSecond(); };
+  // "Force refresh": re-register with the class server, and ask every connected laptop to reconnect from scratch.
+  // Laptops that have already dropped off reconnect by themselves (Helper 0.1.9+ / refreshed browser page).
+  $("tReconnect").onclick = () => {
+    if (!confirm("Reconnect everyone? Screens will go blank for a few seconds while each laptop reconnects.")) return;
+    try { if (peer && !peer.destroyed) { if (peer.disconnected) peer.reconnect(); else reRegister(); } } catch {}
+    let n = 0;
+    for (const [id, L] of learners) if (L.online && L.conn && L.conn.open) { send(id, { type:"rejoin" }); n++; }
+    const off = [...learners.values()].filter(L => !L.online).length;
+    toast(`Asked ${n} laptop${n===1?"":"s"} to reconnect.` + (off ? ` ${off} disconnected one${off===1?"":"s"} will reconnect by themselves within about 30 seconds.` : ""));
+  };
   $("sClose").onclick = $("sX").onclick = () => $("second").hidden = true;
   $("jX").onclick = () => $("join").hidden = true;
   $("sCopy").onclick = () => copy(monitorUrl());
