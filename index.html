@@ -238,7 +238,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
   <section id="liveCard" class="card" hidden>
     <div class="status"><span class="dot" id="lDot"></span><span id="lStatus">Connecting…</span></div>
     <video id="lPreview" class="preview" muted playsinline autoplay></video>
-    <button class="btn bigstuck" id="lStuck" type="button">I'm stuck</button>
+    <button class="btn bigstuck" id="lStuck" type="button">Help, I'm stuck</button>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn pipbtn" id="lPip" type="button" hidden>Open floating panel</button>
       <button class="btn" id="lReshare" type="button" hidden>Share screen again</button>
@@ -640,7 +640,7 @@ function startLearnerView(code){
   function paintPip(){
     if (!pip) return;
     const d = pip.document, b = d.getElementById("pStuck"), e = d.getElementById("pEyes");
-    if (b) { b.textContent = stuck ? "Waiting for help…" : "I'm stuck"; b.className = stuck ? "on" : ""; }
+    if (b) { b.textContent = stuck ? "Waiting for help…" : "Help, I'm stuck"; b.className = stuck ? "on" : ""; }
     if (e) { e.hidden = !eyesOn; d.getElementById("pMsg").textContent = eyesText; }
   }
   async function applyQuality(){
@@ -656,7 +656,7 @@ function startLearnerView(code){
   function setStatus(kind, text){ $("lDot").className = "dot " + kind; $("lStatus").textContent = text; }
   function setStuck(v){
     stuck = v;
-    $("lStuck").textContent = v ? "Waiting for help… (tap to cancel)" : "I'm stuck";
+    $("lStuck").textContent = v ? "Waiting for help… (tap to cancel)" : "Help, I'm stuck";
     $("lStuck").className = "btn bigstuck" + (v ? " stuck" : "");
     send({ type:"stuck", value:v });
     paintPip();

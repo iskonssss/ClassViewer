@@ -56,6 +56,9 @@ input[type=text]{width:100%;border:1px solid var(--line);background:var(--surfac
 .dot.off{background:var(--bad)}
 .preview{width:100%;aspect-ratio:16/10;background:var(--tile);border-radius:8px;object-fit:contain}
 .bigstuck{font-size:19px;padding:16px;border-radius:12px}
+.actions{display:flex;gap:10px;align-items:stretch}
+.actions .leavebtn{flex:0 0 auto;border-radius:12px;padding:16px 18px}
+.actions .bigstuck{flex:1}
 .active{border:2px solid var(--ctl)}
 .check{display:flex;gap:8px;align-items:center;font-size:14px}
 details.opts{border-top:1px solid var(--line);padding-top:10px;display:grid;gap:8px}
@@ -115,7 +118,10 @@ details.opts[open]{gap:8px}
   <div class="card">
     <div class="status"><span class="dot" id="lDot"></span><span id="lStatus">Connecting…</span></div>
     <video id="lPreview" class="preview" muted playsinline autoplay></video>
-    <button class="btn bigstuck" id="lStuck" type="button">I'm stuck</button>
+    <div class="actions">
+      <button class="btn leavebtn" id="leave" type="button">Leave class</button>
+      <button class="btn bigstuck" id="lStuck" type="button">Help, I'm stuck</button>
+    </div>
     <p class="hint" id="lCtlInfo"></p>
   </div>
 
@@ -126,7 +132,6 @@ details.opts[open]{gap:8px}
     <button class="btn ctl" id="stopCtl">Stop control</button>
   </div>
 
-  <div class="row"><button class="btn" id="leave">Leave class</button></div>
 </section>
 
 <script src="node_modules/peerjs/dist/peerjs.min.js"></script>
@@ -414,7 +419,7 @@ async function applyQuality(){
 function setStatus(kind, text){ $("lDot").className = "dot " + kind; $("lStatus").textContent = text; }
 function setStuck(v){
   stuck = v;
-  $("lStuck").textContent = v ? "Waiting for help… (click to cancel)" : "I'm stuck";
+  $("lStuck").textContent = v ? "Waiting for help… (click to cancel)" : "Help, I'm stuck";
   $("lStuck").className = "btn bigstuck" + (v ? " stuck" : "");
   send({ type:"stuck", value:v });
 }
