@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld("helper", {
   startupGet: () => ipcRenderer.invoke("startup-get"),
   startupSet: on => ipcRenderer.invoke("startup-set", on),
   onStopHotkey: fn => ipcRenderer.on("stop-hotkey", () => fn()),
+  inClass: info => ipcRenderer.send("in-class", info),
 });

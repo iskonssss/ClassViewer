@@ -210,6 +210,7 @@ async function join(){
   if (code.length < 4) return jErr("Check the class code on the projector.");
   if (!name) return jErr("Enter your name.");
   store.set("cv-code", code); store.set("cv-name", name);
+  H.inClass({ code, name });
   trainerId = PREFIX + code + "-trainer";
   try { stream = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:24 }, audio:false }); }
   catch (e) { return jErr(IS_MAC ? "Couldn't share your screen. Allow ClassView Helper under System Settings → Privacy & Security → Screen Recording, then restart the Helper." : "Couldn't share your screen (" + (e && e.name || "error") + "). Close and reopen the Helper, then try again."); }
@@ -226,7 +227,29 @@ function jErr(m){ $("jErr").textContent = m; $("jErr").hidden = false; }
 function prepStream(){
   const tr = stream.getVideoTracks()[0];
   try { tr.contentHint = "detail"; } catch {}
-  tr.addEventListener("ended", () => setStatus("off","Screen sharing stopped. Leave and join again to share."));
+  tr.addEventListener("ended", () => { if (!leaving) recapture(); });
+}
+// Windows can end a screen share by itself (screen locked, display/resolution change, graphics driver hiccup).
+// Grab the screen again and resend it, instead of asking the learner to leave and rejoin.
+let recapT = null, recapTries = 0;
+async function recapture(){
+  clearTimeout(recapT);
+  if (leaving) return;
+  setStatus("wait", "Restarting screen sharing…");
+  try {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:24 }, audio:false });
+    try { stream && stream.getTracks().forEach(t => t.stop()); } catch {}
+    stream = s; recapTries = 0;
+    prepStream();
+    $("lPreview").srcObject = stream;
+    if (conn && conn.open) { send({ type:"hello", ...info() }); startCall(); }
+    resetMonitors();
+    setStatus(linkUp() ? "on" : "wait", linkUp() ? "Your screen is being shared with your trainer." : "Reconnecting to your trainer…");
+  } catch (e) {
+    recapTries++;
+    setStatus("off", "Screen sharing stopped. Trying again…");
+    recapT = setTimeout(recapture, Math.min(15000, 2000 * recapTries));
+  }
 }
 function retry(){ clearTimeout(retryT); if (!leaving) retryT = setTimeout(connect, 3000); }
 function linkUp(){ return !!(conn && conn.open && Date.now() - lastHeard < 20000); }
@@ -257,6 +280,7 @@ function linkUp(){ return !!(conn && conn.open && Date.now() - lastHeard < 20000
     makePeer();
   }
   setInterval(() => {
+    if (!leaving && stream && !stream.active && !recapT) recapture();
     if (leaving || !peer || !stream) return;
     if (linkUp()) { downSince = 0; return; }
     const now = Date.now();
@@ -328,7 +352,7 @@ function startCall(){
   setTimeout(applyQuality, 800);
   setStatus("live", "Your screen is being shared with your trainer.");
 }
-function info(){ return { name:$("jName").value.trim(), stuck, sharing:!!(stream && stream.active), client:"helper", canControl:canControl(), ctlWhy:ctlWhy(), os:env.platform, version:env.version }; }
+function info(){ return { lastExit: env.lastExit || "", name:$("jName").value.trim(), stuck, sharing:!!(stream && stream.active), client:"helper", canControl:canControl(), ctlWhy:ctlWhy(), os:env.platform, version:env.version }; }
 function send(m){ try { if (conn && conn.open) conn.send(m); } catch {} }
 let lastCaps = null;
 function sendCaps(){ const c = canControl(); if (c !== lastCaps) { lastCaps = c; send({ type:"caps", canControl:c, ctlWhy:ctlWhy() }); paintCtl(); } }
@@ -396,7 +420,8 @@ function setStuck(v){
 }
 $("lStuck").onclick = () => setStuck(!stuck);
 $("leave").onclick = async () => {
-  leaving = true; clearTimeout(retryT);
+  leaving = true; clearTimeout(retryT); clearTimeout(recapT);
+  H.inClass(null);
   await endControl(true);
   send({ type:"bye" });
   setTimeout(() => { try{ stream && stream.getTracks().forEach(t=>t.stop()); }catch{} try{ peer && peer.destroy(); }catch{} location.reload(); }, 300);

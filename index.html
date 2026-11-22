@@ -100,6 +100,7 @@ input[type=text],select{width:100%;border:1px solid var(--line);background:var(-
 .pill.unlocked{background:var(--bad);color:#fff}
 .pill.kind{border:1px solid var(--line);color:var(--muted);font-weight:600}
 .pill.kind.helper{border-color:var(--ctl);color:var(--ctl)}
+.pill.kind.old{border-color:#d9822b;color:#fff;background:#d9822b}
 .grid.mode-rows,.grid.mode-seats{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
 .lane{border:1px dashed var(--line);border-radius:12px;padding:8px 10px 10px;display:grid;gap:8px;min-width:0}
 .lane h3,.frontbar{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0}
@@ -775,6 +776,8 @@ function startTrainer(MONITOR){
     } else go();
   }
   setInterval(selfCheck, 20000);
+  const LATEST_HELPER = "0.2.0";      // keep in step with helper/package.json
+  const shownExits = new Set();
   function verGte(v, min){ const a=String(v||"0").split(".").map(Number), b=min.split(".").map(Number); for (let i=0;i<3;i++){ if((a[i]||0)>(b[i]||0)) return true; if((a[i]||0)<(b[i]||0)) return false; } return true; }
 
   // ----- second screen: trainer side -----
@@ -925,7 +928,9 @@ function startTrainer(MONITOR){
     L.lastSeen = Date.now();
     if (m.type === "pong" || m.type === "ping") return; // heartbeat only: nothing on screen changes
     switch (m.type) {
-      case "hello": Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy, version:m.version,
+      case "hello":
+        if (m.lastExit && !MONITOR) { const key = (m.name||"") + "|" + m.lastExit; if (!shownExits.has(key)) { shownExits.add(key); toast((m.name || "A learner") + ": " + m.lastExit + ". It's back now."); console.warn("ClassView Helper —", m.name, m.lastExit); } }
+        Object.assign(L, { name:m.name, stuck:!!m.stuck, client:m.client||"browser", canControl:!!m.canControl, os:m.os, ctlWhy:m.ctlWhy, version:m.version,
         canMonitor: !!m.mon || (m.client==="helper" && verGte(m.version, "0.1.3")) }); dropTwins(id); send(id, { type:"monitors", ids:[...monitors.keys()] }); break;
       case "caps": Object.assign(L, { canControl:!!m.canControl, ctlWhy:m.ctlWhy }); break;
       case "stuck": { const was=L.stuck; L.stuck=!!m.value; L.stuckAt = L.stuck ? Date.now() : null; if (L.stuck && !was) beep(); break; }
@@ -1002,8 +1007,11 @@ function startTrainer(MONITOR){
       const ul = el.querySelector(".pill.unlocked"), why = MONITOR ? "" : eyesProblem(L);
       ul.hidden = !why; setText(ul, why); ul.title = why && L.eyesAck && L.eyesAck.err ? "Reason: " + L.eyesAck.err : "";
       const k = el.querySelector(".pill.kind");
-      setText(k, L.client==="helper" ? (L.canControl ? "Helper" : "Helper · no control") : "Browser");
-      k.classList.toggle("helper", L.client==="helper" && L.canControl);
+      const old = L.client==="helper" && L.version && !verGte(L.version, LATEST_HELPER);
+      setText(k, old ? "Old Helper" : L.client==="helper" ? (L.canControl ? "Helper" : "Helper · no control") : "Browser");
+      k.title = L.client==="helper" ? "ClassView Helper " + (L.version || "?") + (old ? " — download Helper " + LATEST_HELPER + " on this laptop" : "") : "";
+      k.classList.toggle("helper", L.client==="helper" && L.canControl && !old);
+      k.classList.toggle("old", !!old);
       el.classList.toggle("is-stuck", !!(L.stuck && L.online));
       el.classList.toggle("is-ctl", L.ctl==="active");
       el.classList.toggle("is-off", !L.online);
@@ -1372,7 +1380,8 @@ function startTrainer(MONITOR){
     if (MONITOR) return;
     const L = learners.get(id), k = L && nameKey(L.name);
     if (!k || k === "learner") return;
-    for (const [oid, O] of [...learners]) if (oid !== id && !O.online && nameKey(O.name) === k) dropLearner(oid);
+    // same name and either offline or silent for 8 s+ (a Helper that crashed and came back): replace it
+    for (const [oid, O] of [...learners]) if (oid !== id && nameKey(O.name) === k && (!O.online || Date.now() - (O.lastSeen || 0) > 8000)) dropLearner(oid);
   }
   function setEyesAll(on){
     eyes = { on, text: $("tEyesMsg").value.trim() };
@@ -1404,6 +1413,10 @@ function startTrainer(MONITOR){
   setInterval(() => { if (!MONITOR && eyes.on) paintEyesNote(); }, 2000);
   setInterval(() => {
     if (MONITOR) return; // the second screen learns who's online from the trainer's roster
+    // tidy up: a learner who came back (new connection, same name) replaces their old, silent tile
+    const before = learners.size;
+    for (const [id,L] of [...learners]) if (learners.has(id) && L.online && L.lastSeen && Date.now() - L.lastSeen < 7000) dropTwins(id);
+    if (learners.size !== before) render();
     for (const [id,L] of learners) {
       if (L.conn && L.conn.open) {
         // a link that has gone silent for 20s is dead even if the browser hasn't noticed yet

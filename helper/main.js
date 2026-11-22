@@ -2,8 +2,9 @@
 // Shares the primary screen with the trainer and, only while the learner has
 // approved it, turns the trainer's mouse/keyboard messages into real input.
 const { app, BrowserWindow, ipcMain, desktopCapturer, session, screen,
-        systemPreferences, shell, globalShortcut, Notification } = require("electron");
+        systemPreferences, shell, globalShortcut, Notification, dialog } = require("electron");
 const path = require("path");
+const fs = require("fs");
 
 const IS_MAC = process.platform === "darwin";
 const IS_WIN = process.platform === "win32";
@@ -18,6 +19,42 @@ try {
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 
 let win = null, bar = null, controlling = false, trainerPlatform = "win";
+
+// ---------- staying alive: crash log, rejoin after a crash, and no accidental closing ----------
+// run-state.json says whether the last run ended cleanly, and which class we were in.
+let inClassInfo = null, quitting = false, lastExit = "", pendingAutoJoin = null;
+const STATE_FILE = () => path.join(app.getPath("userData"), "run-state.json");
+const LOG_FILE = () => path.join(app.getPath("userData"), "classview-log.txt");
+function log(msg) {
+  try {
+    const f = LOG_FILE(), line = new Date().toISOString() + " " + msg + "\n";
+    if (fs.existsSync(f) && fs.statSync(f).size > 200000) fs.writeFileSync(f, fs.readFileSync(f, "utf8").slice(-100000));
+    fs.appendFileSync(f, line);
+  } catch {}
+}
+function writeState(running) {
+  try { fs.mkdirSync(app.getPath("userData"), { recursive: true }); fs.writeFileSync(STATE_FILE(), JSON.stringify({ running, alive: Date.now(), inClass: inClassInfo, version: app.getVersion(), lastProblem })); } catch {}
+}
+let lastProblem = "";
+function readPreviousRun() {
+  try {
+    const st = JSON.parse(fs.readFileSync(STATE_FILE(), "utf8"));
+    if (st.running) {
+      const when = new Date(st.alive).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      lastExit = "ClassView closed unexpectedly around " + when + (st.lastProblem ? " (" + st.lastProblem + ")" : "");
+      log("previous run ended unexpectedly; last alive " + new Date(st.alive).toISOString() + (st.lastProblem ? "; " + st.lastProblem : ""));
+      // crashed or was killed in the middle of a class within the last 30 minutes: go straight back in
+      if (st.inClass && st.inClass.code && Date.now() - st.alive < 30 * 60 * 1000) pendingAutoJoin = st.inClass;
+    }
+  } catch {}
+}
+process.on("uncaughtException", e => { lastProblem = "error: " + String((e && e.message) || e).slice(0, 120); log("uncaughtException " + ((e && e.stack) || e)); writeState(true); });
+process.on("unhandledRejection", e => { log("unhandledRejection " + ((e && e.stack) || e)); });
+ipcMain.on("in-class", (_e, info) => {
+  inClassInfo = info && info.code ? { code: String(info.code).slice(0, 8), name: String(info.name || "").slice(0, 60) } : null;
+  writeState(true);
+});
+app.on("child-process-gone", (_e, d) => { lastProblem = d.type + " process " + d.reason; log("child-process-gone " + JSON.stringify(d)); writeState(true); });
 
 // The portable Windows .exe unpacks to a temp folder each run; PORTABLE_EXECUTABLE_FILE is the real file.
 const EXE_PATH = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
@@ -35,6 +72,31 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, "app.html"));
+  // If the page crashes or freezes, reload it and rejoin the class by itself.
+  win.webContents.on("render-process-gone", (_e, d) => {
+    lastProblem = "page " + d.reason; log("render-process-gone " + JSON.stringify(d)); writeState(true);
+    if (d.reason === "clean-exit" || quitting) return;
+    pendingAutoJoin = inClassInfo; lastExit = "ClassView restarted itself after a problem (" + d.reason + ")";
+    setTimeout(() => { try { win && !win.isDestroyed() && win.reload(); } catch {} }, 800);
+  });
+  let hangT = null;
+  win.on("unresponsive", () => {
+    log("page unresponsive");
+    clearTimeout(hangT);
+    hangT = setTimeout(() => { try { lastProblem = "page froze"; pendingAutoJoin = inClassInfo; win.webContents.forcefullyCrashRenderer(); } catch {} }, 15000);
+  });
+  win.on("responsive", () => clearTimeout(hangT));
+  // Closing the window by accident shouldn't drop the learner out of class.
+  win.on("close", e => {
+    if (quitting || !inClassInfo) return;
+    e.preventDefault();
+    const r = dialog.showMessageBoxSync(win, {
+      type: "question", buttons: ["Keep sharing", "Leave class and close"], defaultId: 0, cancelId: 0, noLink: true,
+      title: "ClassView Helper", message: "You're sharing your screen with your trainer.", detail: "Close ClassView and leave the class?",
+    });
+    if (r === 1) { quitting = true; inClassInfo = null; writeState(true); win.close(); }
+    else win.minimize();
+  });
   if (LAUNCHED_AT_STARTUP) win.once("ready-to-show", () => { win.showInactive(); win.minimize(); });
   if (process.env.CLASSVIEW_DEBUG) {
     win.webContents.on("console-message", (e) => console.log("[renderer]", e.level, e.message));
@@ -63,6 +125,9 @@ function createBar() {
 }
 
 app.whenReady().then(() => {
+  readPreviousRun();
+  writeState(true);
+  setInterval(() => writeState(true), 60000);
   // Always share the whole primary screen, without a picker.
   session.defaultSession.setDisplayMediaRequestHandler(async (_req, cb) => {
     try {
@@ -78,6 +143,8 @@ app.whenReady().then(() => {
 });
 app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 app.on("window-all-closed", () => app.quit());
+app.on("before-quit", () => { quitting = true; });
+app.on("will-quit", () => { inClassInfo = null; writeState(false); log("clean quit"); });
 app.on("will-quit", () => { try { globalShortcut.unregisterAll(); } catch {} releaseAll(); eyesOff(); try { pointWin && pointWin.destroy(); } catch {} });
 
 // ---------- permissions ----------
@@ -90,7 +157,12 @@ function permissions() {
   return { screen: scr, accessibility: acc };
 }
 
-ipcMain.handle("env", () => ({
+ipcMain.handle("env", () => {
+  const aj = pendingAutoJoin; pendingAutoJoin = null;   // rejoin once only
+  const le = lastExit; lastExit = "";
+  return envInfo(aj, le);
+});
+function envInfo(pendingAutoJoin, lastExit) { return ({
   platform: process.platform,
   version: app.getVersion(),
   robotOk: !!robot, robotErr,
@@ -100,10 +172,11 @@ ipcMain.handle("env", () => ({
     path: process.env.CLASSVIEW_PEERPATH || "/",
     secure: process.env.CLASSVIEW_PEERSECURE !== "0",
   } : null,
-  autoJoin: process.env.CLASSVIEW_AUTOJOIN || null,
+  autoJoin: process.env.CLASSVIEW_AUTOJOIN || (pendingAutoJoin ? pendingAutoJoin.code + ":" + pendingAutoJoin.name : null),
+  lastExit,
   startup: LAUNCHED_AT_STARTUP,
   testAutoAllow: process.env.CLASSVIEW_TEST_AUTOALLOW === "1",
-}));
+}); }
 ipcMain.handle("permissions", () => permissions());
 // "Start when this computer starts" (opt-in, per laptop)
 function loginOpts(on){ return IS_WIN ? { openAtLogin: on, path: EXE_PATH, args: ["--startup"] } : { openAtLogin: on }; }
